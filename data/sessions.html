@@ -1,0 +1,742 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Web-view — Connected Sessions</title>
+<style>
+  :root {
+    --bg: #0b1020;
+    --panel: rgba(255,255,255,.035);
+    --panel-hi: rgba(255,255,255,.06);
+    --border: rgba(255,255,255,.08);
+    --text: #e5ebf5;
+    --dim: #8a94ad;
+    --green: #4ade80;
+    --red: #f87171;
+    --blue: #60a5fa;
+    --gold: #f5c13a;
+    --violet: #c084fc;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); }
+  body {
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: radial-gradient(900px 600px at 10% -10%, #1a2551 0%, transparent 60%),
+                radial-gradient(700px 500px at 90% -20%, #331a51 0%, transparent 55%),
+                var(--bg);
+    min-height: 100vh;
+  }
+  header { padding: 1.8rem 2rem 1rem; border-bottom: 1px solid var(--border); }
+  h1 { margin: 0; font-size: 1.5rem; letter-spacing: -0.02em; }
+  h1 .sub { color: var(--dim); font-weight: 400; font-size: .95rem; margin-left: .6rem; }
+
+  main { padding: 1.4rem 2rem 2rem; }
+
+  .status-row {
+    display: flex; align-items: center; gap: .8rem;
+    padding: .9rem 1.1rem; margin-bottom: 1.2rem;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+  }
+  .status-row h3 { margin: 0; font-size: 1rem; font-weight: 600; letter-spacing: -0.01em; }
+  .status-row .count {
+    font-family: var(--mono); font-size: .82rem; color: var(--dim);
+    background: rgba(255,255,255,.06); padding: .15rem .7rem; border-radius: 999px;
+  }
+  .status-row .daemon-info {
+    margin-left: auto; font-family: var(--mono); font-size: .75rem; color: var(--dim);
+  }
+  .status-dot {
+    width: 9px; height: 9px; border-radius: 50%; display: inline-block;
+    background: var(--green); box-shadow: 0 0 10px rgba(74,222,128,.6);
+    animation: blink 2s ease-in-out infinite;
+  }
+  .status-dot.offline { background: var(--red); box-shadow: 0 0 10px rgba(248,113,113,.6); animation: none; }
+  @keyframes blink { 50% { opacity: .4; } }
+
+  .sessions-list {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: .7rem; margin: 0; padding: 0; list-style: none;
+  }
+  .group-section { margin-bottom: 1rem; }
+  .group-header {
+    display: flex; align-items: center; gap: .7rem;
+    padding: .55rem .9rem; margin-bottom: .55rem;
+    background: rgba(255,255,255,.02); border: 1px solid var(--border);
+    border-left: 3px solid var(--group-color, var(--dim));
+    border-radius: 8px;
+  }
+  .group-header .name {
+    font-weight: 600; font-size: .95rem; letter-spacing: -0.01em;
+    background: transparent; color: var(--text); border: none; outline: none;
+    padding: .15rem .25rem; border-radius: 4px; min-width: 2ch;
+    font-family: inherit;
+  }
+  .group-header .name:hover { background: rgba(255,255,255,.05); cursor: text; }
+  .group-header .name:focus { background: rgba(255,255,255,.08); }
+  .group-header .count {
+    font-family: var(--mono); font-size: .72rem; color: var(--dim);
+    background: rgba(255,255,255,.06); padding: .1rem .55rem; border-radius: 999px;
+  }
+  .group-header .actions { margin-left: auto; display: flex; gap: .35rem; }
+  .group-header .btn {
+    background: transparent; border: 1px solid var(--border); color: var(--dim);
+    font: inherit; font-size: .72rem; padding: .2rem .55rem; border-radius: 6px;
+    cursor: pointer;
+  }
+  .group-header .btn:hover { color: var(--text); border-color: rgba(255,255,255,.22); }
+  .group-header .btn.delete:hover { color: var(--red); border-color: rgba(248,113,113,.4); }
+  .group-header .btn.delete.armed {
+    color: var(--red); border-color: rgba(248,113,113,.6);
+    background: rgba(248,113,113,.08);
+    animation: armedPulse 1.2s ease-in-out infinite;
+  }
+  @keyframes armedPulse { 50% { background: rgba(248,113,113,.15); } }
+  .group-drop {
+    min-height: 48px; padding: .4rem; border-radius: 10px;
+    border: 1px dashed transparent;
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: .7rem; list-style: none; margin: 0;
+    transition: background .15s ease, border-color .15s ease;
+  }
+  .group-drop.empty { border-color: rgba(255,255,255,.08); color: var(--dim); font-style: italic; align-items: center; justify-content: center; display: flex; padding: 1rem; }
+  .group-drop.drag-over { background: rgba(96,165,250,.06); border-color: rgba(96,165,250,.35); border-style: dashed; }
+  .new-group-btn {
+    background: transparent; border: 1px dashed var(--border); color: var(--dim);
+    font: inherit; font-size: .85rem; padding: .6rem 1rem; border-radius: 8px;
+    cursor: pointer; margin-top: .5rem; width: 100%;
+    transition: color .15s, border-color .15s, background .15s;
+  }
+  .new-group-btn:hover { color: var(--text); border-color: rgba(96,165,250,.5); background: rgba(96,165,250,.04); }
+  .session {
+    background: rgba(0,0,0,.22); border: 1px solid var(--border); border-radius: 11px;
+    padding: .8rem 1rem; font-family: var(--mono); font-size: .82rem;
+    display: flex; flex-direction: column; gap: .35rem;
+    transition: border-color .25s ease, transform .1s ease, opacity .15s ease;
+    cursor: grab;
+  }
+  .session:active { cursor: grabbing; }
+  .session.dragging { opacity: .45; }
+  .session:hover { transform: translateY(-1px); border-color: rgba(96,165,250,.35); }
+  .session.fresh { border-color: rgba(74,222,128,.5); }
+  .session.idle  { border-color: rgba(245,193,58,.4); opacity: .88; }
+  .session .row { display: flex; align-items: center; gap: .55rem; min-width: 0; }
+  .session .pid { color: var(--blue); font-weight: 600; flex-shrink: 0; }
+  .session .name {
+    color: var(--gold); font-weight: 700;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-family: ui-sans-serif, system-ui, sans-serif; font-size: .95rem;
+  }
+  .session .cwd {
+    color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-size: .74rem;
+  }
+  .session .cwd-strong {
+    color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-weight: 500;
+  }
+  .session .id-row { color: var(--dim); font-size: .7rem; letter-spacing: .03em; }
+  .session .meta {
+    color: var(--dim); font-size: .72rem;
+    display: flex; justify-content: space-between; gap: .5rem;
+  }
+  .session .calls { color: var(--violet); }
+  .session .status {
+    margin-left: auto;
+    font-size: .68rem; font-weight: 600; letter-spacing: .04em;
+    text-transform: uppercase;
+    padding: .15rem .55rem; border-radius: 999px; white-space: nowrap;
+    flex-shrink: 0;
+    display: inline-flex; align-items: center; gap: .35rem;
+    font-family: ui-sans-serif, system-ui, sans-serif;
+  }
+  .session .status .dot {
+    width: 6px; height: 6px; border-radius: 50%; display: inline-block;
+  }
+  .session .status.working {
+    background: rgba(74,222,128,.14); color: var(--green);
+    border: 1px solid rgba(74,222,128,.35);
+  }
+  .session .status.working .dot {
+    background: var(--green);
+    box-shadow: 0 0 6px rgba(74,222,128,.6);
+    animation: statusPulse 1.6s ease-in-out infinite;
+  }
+  .session .status.idle {
+    background: rgba(138,148,173,.10); color: var(--dim);
+    border: 1px solid rgba(138,148,173,.25);
+    text-transform: none; letter-spacing: normal; font-weight: 500;
+  }
+  .session .status.idle .dot {
+    background: var(--dim); opacity: .6;
+  }
+  @keyframes statusPulse { 50% { opacity: .45; } }
+  .session.empty {
+    color: var(--dim); font-style: italic;
+    align-items: center; justify-content: center; padding: 1.4rem;
+    border-style: dashed; grid-column: 1 / -1;
+  }
+
+  footer { padding: 1rem 2rem; border-top: 1px solid var(--border); color: var(--dim); font-size: .78rem; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Connected sessions <span class="sub">— live view of all Claude Code sessions using the web-view daemon</span></h1>
+</header>
+<main>
+  <div class="status-row">
+    <span class="status-dot" id="daemon-dot"></span>
+    <h3>Daemon</h3>
+    <span class="count" id="sessions-count">—</span>
+    <span class="daemon-info" id="daemon-info">—</span>
+  </div>
+  <div id="groups-container"></div>
+  <button id="new-group-btn" class="new-group-btn" type="button">+ New group</button>
+</main>
+<footer>Polls <code>http://127.0.0.1:8787/sessions</code> every 2 s. Drag session cards between groups to organize them; groups persist across daemon restarts.</footer>
+
+<script>
+(() => {
+  const DAEMON_BASE = "http://127.0.0.1:8787";
+  const countEl = document.getElementById("sessions-count");
+  const dotEl = document.getElementById("daemon-dot");
+  const infoEl = document.getElementById("daemon-info");
+  const groupsContainer = document.getElementById("groups-container");
+  const newGroupBtn = document.getElementById("new-group-btn");
+
+  // Palette for auto-assigned group colors (cycles when all are used).
+  const COLORS = ["#60a5fa", "#4ade80", "#c084fc", "#f5c13a", "#f87171", "#38bdf8", "#fb923c", "#a3e635"];
+
+  // Magic numbers gathered in one place for easy tuning.
+  const TIMINGS = {
+    pollIntervalMs: 2000,
+    armedWindowMs: 5000,
+    freshThresholdMs: 6000,
+    writeSettleMs: 500,
+  };
+
+  // Local copies of the latest daemon state.
+  let sessionsState = [];
+  let groupsState = [];
+  let daemonState = null;
+
+  // Suppress re-render while the user is mid-drag so DOM churn doesn't
+  // disrupt the drag. Set on dragstart, cleared on dragend.
+  let isDragging = false;
+  // Same idea but for the press-before-drag window: as soon as mousedown
+  // lands on a card we pause polling. Without this, a coinciding in-place
+  // metadata update (e.g. "14 calls · last 1s ago" on the active session)
+  // swaps the text node under the cursor and Chromium cancels the drag.
+  let isMouseDownOnCard = false;
+  // Timestamp of the last PUT to /session-groups. Polls within the settle
+  // window get skipped so we don't flash server state back over our local
+  // mutation before the server has acknowledged it.
+  let lastWriteAt = 0;
+  // Delete buttons are armed per-group (two-click confirm). Tracking the
+  // armed set at module scope rather than via per-button closures means
+  // re-renders (e.g. after a drop) don't orphan pending timers.
+  const armedGroupIds = new Set();
+
+  // Global mouseup fallback so we don't get stuck if the user presses on a
+  // card and releases outside it.
+  document.addEventListener("mouseup", () => { isMouseDownOnCard = false; });
+
+  function basename(p) {
+    if (!p) return "—";
+    const parts = String(p).split(/[\\/]/).filter(Boolean);
+    return parts.length >= 2 ? parts.slice(-2).join("/") : parts.join("/") || p;
+  }
+
+  // Context-window sizes for known Claude models. The proxy reports model as
+  // it appears in the CC JSONL (e.g. "claude-opus-4-7[1m]"). Unknown models
+  // fall back to 200K — if the fallback is triggered, the label shows "?" so
+  // the user knows the percentage is approximate.
+  // "Working" = last tool call within this window; beyond it, the session is
+  // considered idle and the card surfaces how long it's been idle.
+  const WORKING_THRESHOLD_MS = 60_000;
+
+  // Format an idle duration in minutes / hours (never seconds — transient
+  // sub-minute gaps happen mid-turn and aren't useful to surface).
+  function fmtIdleDuration(ms) {
+    const totalMin = Math.floor(ms / 60_000);
+    if (totalMin < 1) return "idle <1m";
+    if (totalMin < 60) return `idle ${totalMin}m`;
+    const h = Math.floor(totalMin / 60);
+    const mr = totalMin % 60;
+    return mr ? `idle ${h}h ${mr}m` : `idle ${h}h`;
+  }
+
+  // Derive a session's status from its lastCallAgoMs (with a fallback to
+  // ageMs when the session has made no tool calls yet).
+  function deriveStatus(s) {
+    if (s.lastCallAgoMs == null) {
+      // No tool calls yet — session is idle but we only know "age" not
+      // "idle for how long". Use ageMs as a reasonable approximation.
+      return { kind: "idle", label: fmtIdleDuration(s.ageMs || 0) };
+    }
+    if (s.lastCallAgoMs < WORKING_THRESHOLD_MS) {
+      return { kind: "working", label: "working" };
+    }
+    return { kind: "idle", label: fmtIdleDuration(s.lastCallAgoMs) };
+  }
+
+  function buildStatusPill(s) {
+    const { kind, label } = deriveStatus(s);
+    const pill = document.createElement("span");
+    pill.className = "status " + kind;
+    const dot = document.createElement("span"); dot.className = "dot";
+    const txt = document.createElement("span"); txt.textContent = label;
+    pill.append(dot, txt);
+    return pill;
+  }
+  function fmtAge(ms) {
+    if (ms == null || ms < 0) return "—";
+    const s = Math.floor(ms / 1000);
+    if (s < 60) return s + "s";
+    const m = Math.floor(s / 60); if (m < 60) return m + "m " + (s % 60) + "s";
+    const h = Math.floor(m / 60); return h + "h " + (m % 60) + "m";
+  }
+  function uid() { return "grp_" + Math.random().toString(36).slice(2, 10); }
+
+  // Match a session against a group's members. A session matches if any
+  // member rule matches: either { key: "cwd", value: s.cwd } or
+  // { key: "sessionName", value: s.sessionName }.
+  function sessionMatchesGroup(session, group) {
+    for (const m of group.members || []) {
+      if (m.key === "cwd" && session.cwd && m.value === session.cwd) return true;
+      if (m.key === "sessionName" && session.sessionName && m.value === session.sessionName) return true;
+    }
+    return false;
+  }
+
+  // Pick the match key + value for a session when dragging it into a group.
+  // Prefer sessionName (more specific) when set, else cwd.
+  function matchKeyForSession(session) {
+    if (session.sessionName) return { key: "sessionName", value: session.sessionName };
+    if (session.cwd) return { key: "cwd", value: session.cwd };
+    return null;
+  }
+
+  // Serialize PUTs to /session-groups so two rapid drags can't race each
+  // other on the network. Each call appends to a chain; the chain's tail
+  // holds the last-submitted snapshot as the authoritative write.
+  let saveChain = Promise.resolve();
+  function saveGroups() {
+    saveChain = saveChain.then(() => doSaveGroups());
+    // Callers don't await — the chain runs in the background.
+    saveChain.catch(() => {});
+    return saveChain;
+  }
+
+  async function doSaveGroups() {
+    // Suppress polls while the PUT is in flight so stale server state can't
+    // overwrite our optimistic local mutation mid-request.
+    lastWriteAt = Date.now();
+    let ok = false;
+    try {
+      const res = await fetch(DAEMON_BASE + "/session-groups", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ groups: groupsState }),
+      });
+      ok = res.ok;
+      if (!ok) {
+        const t = await res.text().catch(() => "");
+        console.error("save groups failed", res.status, t);
+      }
+    } catch (e) {
+      console.error("save groups error", e);
+    }
+    if (ok) {
+      // Extend the settle window so the next poll gets the server's echo.
+      lastWriteAt = Date.now();
+    } else {
+      // Let the next poll resync immediately — server state is authoritative,
+      // so our (unsaved) local mutation snaps back rather than diverging.
+      lastWriteAt = 0;
+    }
+  }
+
+  // Move a session (identified by its current matchKey) into the target
+  // group. If targetGroupId is null, the session is removed from all groups
+  // (i.e. becomes Ungrouped). Returns true if anything changed.
+  function assignSessionToGroup(session, targetGroupId) {
+    const mk = matchKeyForSession(session);
+    if (!mk) return false; // no stable identifier — can't persist
+
+    let changed = false;
+    for (const g of groupsState) {
+      const before = g.members.length;
+      g.members = g.members.filter((m) => !(m.key === mk.key && m.value === mk.value));
+      if (g.members.length !== before) changed = true;
+    }
+    if (targetGroupId) {
+      const g = groupsState.find((x) => x.id === targetGroupId);
+      if (g) {
+        // Dedupe: don't add the exact same rule twice.
+        const already = g.members.some((m) => m.key === mk.key && m.value === mk.value);
+        if (!already) { g.members.push({ key: mk.key, value: mk.value }); changed = true; }
+      }
+    }
+    return changed;
+  }
+
+  function renderSessionCard(s) {
+    const li = document.createElement("li");
+    li.className = "session " + (s.lastSeenAgoMs < TIMINGS.freshThresholdMs ? "fresh" : "idle");
+    li.draggable = true;
+    li.dataset.sessionId = s.id || "";
+    li.dataset.cwd = s.cwd || "";
+    li.dataset.sessionName = s.sessionName || "";
+
+    const row1 = document.createElement("div"); row1.className = "row";
+    const pid = document.createElement("span"); pid.className = "pid"; pid.textContent = "pid " + (s.pid ?? "?");
+    row1.append(pid);
+    if (s.sessionName) {
+      const nm = document.createElement("span"); nm.className = "name"; nm.title = s.sessionName;
+      nm.textContent = s.sessionName;
+      row1.append(nm);
+    } else {
+      const cwdStrong = document.createElement("span"); cwdStrong.className = "cwd-strong";
+      cwdStrong.title = s.cwd || "";
+      cwdStrong.textContent = basename(s.cwd);
+      row1.append(cwdStrong);
+    }
+    row1.append(buildStatusPill(s));
+
+    let cwdRow = null;
+    if (s.sessionName) {
+      cwdRow = document.createElement("div"); cwdRow.className = "cwd";
+      cwdRow.title = s.cwd || "";
+      cwdRow.textContent = basename(s.cwd);
+    }
+
+    const idRow = document.createElement("div"); idRow.className = "id-row";
+    idRow.textContent = "session " + (s.id ? s.id.slice(0, 8) : "?");
+
+    const meta = document.createElement("div"); meta.className = "meta";
+    const age = document.createElement("span"); age.textContent = "up " + fmtAge(s.ageMs);
+    meta.append(age);
+
+    li.append(row1);
+    if (cwdRow) li.append(cwdRow);
+    li.append(idRow, meta);
+    li.title = (s.sessionName ? s.sessionName + "\n" : "") + (s.cwd || "") + "\nsession " + (s.id || "");
+
+    li.addEventListener("mousedown", () => { isMouseDownOnCard = true; });
+    li.addEventListener("dragstart", (e) => {
+      isDragging = true;
+      li.classList.add("dragging");
+      e.dataTransfer.effectAllowed = "move";
+      e.dataTransfer.setData("text/plain", s.id || "");
+    });
+    li.addEventListener("dragend", () => {
+      isDragging = false;
+      isMouseDownOnCard = false;
+      li.classList.remove("dragging");
+    });
+
+    return li;
+  }
+
+  function renderGroupHeader(group, sessionCount) {
+    const header = document.createElement("div");
+    header.className = "group-header";
+    if (group.color) header.style.setProperty("--group-color", group.color);
+
+    const nameInput = document.createElement("span");
+    nameInput.className = "name";
+    nameInput.contentEditable = "true";
+    nameInput.spellcheck = false;
+    nameInput.textContent = group.name;
+    nameInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); nameInput.blur(); }
+      if (e.key === "Escape") { e.preventDefault(); nameInput.textContent = group.name; nameInput.blur(); }
+    });
+    nameInput.addEventListener("blur", () => {
+      const newName = nameInput.textContent.trim() || group.name;
+      if (newName !== group.name) {
+        group.name = newName;
+        saveGroups();
+      }
+      nameInput.textContent = group.name;
+    });
+    header.append(nameInput);
+
+    const count = document.createElement("span");
+    count.className = "count";
+    count.textContent = sessionCount + (sessionCount === 1 ? " session" : " sessions");
+    header.append(count);
+
+    const actions = document.createElement("div"); actions.className = "actions";
+    const delBtn = document.createElement("button");
+    delBtn.className = "btn delete"; delBtn.type = "button";
+    delBtn.title = "Delete this group (sessions move to Ungrouped). Click twice to confirm.";
+    // Restore the armed visual state on re-renders so the 5s countdown
+    // isn't visually lost if the DOM is rebuilt while armed.
+    const startArmed = armedGroupIds.has(group.id);
+    delBtn.textContent = startArmed ? "confirm?" : "delete";
+    if (startArmed) delBtn.classList.add("armed");
+    delBtn.addEventListener("click", () => {
+      if (!armedGroupIds.has(group.id)) {
+        armedGroupIds.add(group.id);
+        delBtn.textContent = "confirm?";
+        delBtn.classList.add("armed");
+        setTimeout(() => {
+          if (!armedGroupIds.has(group.id)) return; // already deleted
+          armedGroupIds.delete(group.id);
+          // The button may have been replaced by a render; find the live one.
+          const live = document.querySelector(
+            `.group-section[data-group-id="${CSS.escape(group.id)}"] .btn.delete`,
+          );
+          if (live) { live.classList.remove("armed"); live.textContent = "delete"; }
+        }, TIMINGS.armedWindowMs);
+        return;
+      }
+      armedGroupIds.delete(group.id);
+      groupsState = groupsState.filter((g) => g.id !== group.id);
+      saveGroups();
+      render();
+    });
+    actions.append(delBtn);
+    header.append(actions);
+    return header;
+  }
+
+  function renderDropZone(group, sessions) {
+    const drop = document.createElement("ul");
+    drop.className = "group-drop";
+    if (group) drop.dataset.groupId = group.id;
+    else drop.dataset.groupId = ""; // ungrouped
+
+    if (!sessions.length) {
+      drop.classList.add("empty");
+      drop.textContent = group ? "drop a session here" : "no ungrouped sessions";
+    } else {
+      for (const s of sessions) drop.append(renderSessionCard(s));
+    }
+
+    // HTML5 dragleave fires every time the cursor crosses ANY child boundary,
+    // not just when it leaves the drop zone. Counting enters minus leaves is
+    // the standard way to reliably know when the cursor is actually inside
+    // vs. outside the zone — without it the .drag-over class flickers as you
+    // hover between cards inside a populated group.
+    let dragDepth = 0;
+    drop.addEventListener("dragenter", (e) => {
+      e.preventDefault();
+      if (dragDepth++ === 0) drop.classList.add("drag-over");
+    });
+    drop.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+    });
+    drop.addEventListener("dragleave", () => {
+      if (--dragDepth <= 0) {
+        dragDepth = 0;
+        drop.classList.remove("drag-over");
+      }
+    });
+    drop.addEventListener("drop", (e) => {
+      e.preventDefault();
+      dragDepth = 0;
+      drop.classList.remove("drag-over");
+      const sessionId = e.dataTransfer.getData("text/plain");
+      if (!sessionId) return;
+      const session = sessionsState.find((s) => s.id === sessionId);
+      if (!session) return;
+      const targetGroupId = drop.dataset.groupId || null;
+      if (assignSessionToGroup(session, targetGroupId)) {
+        saveGroups();
+        render();
+      }
+    });
+
+    return drop;
+  }
+
+  // Signature of everything that would change card placement / which cards exist.
+  // When this stays the same across polls, we just refresh metadata text
+  // in-place rather than rebuilding the DOM — so the currently-active session's
+  // card isn't destroyed out from under a user's drag gesture.
+  let lastStructuralSig = "";
+  function structuralSignature() {
+    // Use JSON.stringify over normalized tuples so separator characters
+    // inside cwd/name/etc. (e.g. "C:\foo|bar") can't collide and produce a
+    // false-equal signature that skips a needed re-render.
+    const sSig = sessionsState
+      .map((s) => [s.id, s.sessionName || "", s.cwd || ""])
+      .sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+    const gSig = groupsState.map((g) => [
+      g.id, g.name, g.color || "",
+      g.members.map((m) => [m.key, m.value]),
+    ]);
+    return JSON.stringify([sSig, gSig]);
+  }
+
+  function updateDaemonChrome() {
+    countEl.textContent = sessionsState.length + (sessionsState.length === 1 ? " session" : " sessions");
+    if (daemonState) {
+      infoEl.textContent = `daemon pid ${daemonState.pid} · port ${daemonState.port} · up ${fmtAge(Date.now() - new Date(daemonState.startedAt).getTime())}`;
+    }
+    dotEl.classList.remove("offline");
+  }
+
+  function updateCardInPlace(s) {
+    const card = groupsContainer.querySelector(`.session[data-session-id="${CSS.escape(s.id)}"]`);
+    if (!card) return;
+    card.classList.remove("fresh", "idle");
+    card.classList.add(s.lastSeenAgoMs < TIMINGS.freshThresholdMs ? "fresh" : "idle");
+    const metaRow = card.querySelector(".meta");
+    if (metaRow) {
+      const spans = metaRow.children;
+      if (spans[0]) spans[0].textContent = "up " + fmtAge(s.ageMs);
+    }
+    // Replace the status pill in place so working/idle transitions animate
+    // smoothly without rebuilding the whole card.
+    const oldStatus = card.querySelector(".status");
+    if (oldStatus) oldStatus.replaceWith(buildStatusPill(s));
+  }
+
+  function render() {
+    updateDaemonChrome();
+
+    const sig = structuralSignature();
+    if (sig === lastStructuralSig && groupsContainer.children.length > 0) {
+      // Structure unchanged — refresh metadata text in each existing card.
+      // Leaves card DOM nodes (and their drag listeners) intact.
+      for (const s of sessionsState) updateCardInPlace(s);
+      return;
+    }
+    lastStructuralSig = sig;
+
+    groupsContainer.textContent = "";
+
+    // Ensure each group has a color (assign from palette when missing).
+    groupsState.forEach((g, i) => { if (!g.color) g.color = COLORS[i % COLORS.length]; });
+
+    // Bucket sessions by first-matching group. Track remaining for Ungrouped.
+    const bucket = new Map();
+    for (const g of groupsState) bucket.set(g.id, []);
+    const ungrouped = [];
+    for (const s of sessionsState) {
+      let placed = false;
+      for (const g of groupsState) {
+        if (sessionMatchesGroup(s, g)) { bucket.get(g.id).push(s); placed = true; break; }
+      }
+      if (!placed) ungrouped.push(s);
+    }
+
+    // Render each named group in order.
+    for (const g of groupsState) {
+      const section = document.createElement("div");
+      section.className = "group-section";
+      section.dataset.groupId = g.id;
+      const members = bucket.get(g.id) || [];
+      section.append(renderGroupHeader(g, members.length));
+      section.append(renderDropZone(g, members));
+      groupsContainer.append(section);
+    }
+
+    // Ungrouped is only meaningful as a destination when either (a) we have
+    // named groups you might want to move a session OUT of, or (b) there are
+    // actually ungrouped sessions to display. On a fresh install with no
+    // groups and no sessions, we hide it entirely.
+    if (groupsState.length > 0 || ungrouped.length > 0) {
+      const uSection = document.createElement("div");
+      uSection.className = "group-section";
+      const uHeader = document.createElement("div"); uHeader.className = "group-header";
+      uHeader.style.setProperty("--group-color", "var(--dim)");
+      const uName = document.createElement("span"); uName.className = "name";
+      uName.style.cursor = "default"; uName.textContent = "Ungrouped";
+      uHeader.append(uName);
+      const uCount = document.createElement("span"); uCount.className = "count";
+      uCount.textContent = ungrouped.length + (ungrouped.length === 1 ? " session" : " sessions");
+      uHeader.append(uCount);
+      uSection.append(uHeader);
+      uSection.append(renderDropZone(null, ungrouped));
+      groupsContainer.append(uSection);
+    }
+  }
+
+  function renderOffline() {
+    dotEl.classList.add("offline");
+    countEl.textContent = "daemon unreachable";
+    infoEl.textContent = "check 127.0.0.1:8787";
+    groupsContainer.textContent = "";
+    const msg = document.createElement("div");
+    msg.className = "session empty";
+    msg.textContent = "daemon offline — no sessions to report";
+    groupsContainer.append(msg);
+  }
+
+  function isEditingName() {
+    const a = document.activeElement;
+    return !!(a && a.classList && a.classList.contains("name") && a.isContentEditable);
+  }
+  function isAnyDeleteArmed() {
+    return !!document.querySelector(".btn.delete.armed");
+  }
+
+  async function poll() {
+    if (isDragging || isMouseDownOnCard || isEditingName() || isAnyDeleteArmed()) return;
+    if (Date.now() - lastWriteAt < TIMINGS.writeSettleMs) return;
+    try {
+      const [sRes, gRes] = await Promise.all([
+        fetch(DAEMON_BASE + "/sessions", { cache: "no-store" }),
+        fetch(DAEMON_BASE + "/session-groups", { cache: "no-store" }),
+      ]);
+      if (!sRes.ok) throw new Error("sessions http " + sRes.status);
+      const sData = await sRes.json();
+      sessionsState = sData.sessions || [];
+      daemonState = sData.daemon || null;
+      if (gRes.ok) {
+        const gData = await gRes.json();
+        groupsState = Array.isArray(gData.groups) ? gData.groups : [];
+      }
+      render();
+    } catch {
+      renderOffline();
+    }
+  }
+
+  // Pick a group color that isn't already in use; fall back to cycling the
+  // palette when every color is taken. Avoids the old bug where deleting a
+  // middle group made the next new one collide with an existing color.
+  function pickNewGroupColor() {
+    const used = new Set(groupsState.map((g) => g.color).filter(Boolean));
+    const free = COLORS.find((c) => !used.has(c));
+    return free || COLORS[groupsState.length % COLORS.length];
+  }
+
+  newGroupBtn.addEventListener("click", () => {
+    const newGroup = {
+      id: uid(),
+      name: "Group " + (groupsState.length + 1),
+      color: pickNewGroupColor(),
+      members: [],
+    };
+    groupsState.push(newGroup);
+    saveGroups();
+    render();
+    // render() is synchronous — the section exists now, no setTimeout needed.
+    const target = groupsContainer.querySelector(
+      `.group-section[data-group-id="${CSS.escape(newGroup.id)}"]`,
+    );
+    const nameEl = target?.querySelector(".name");
+    if (nameEl) {
+      nameEl.focus();
+      const range = document.createRange();
+      range.selectNodeContents(nameEl);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
+  });
+
+  poll();
+  setInterval(poll, TIMINGS.pollIntervalMs);
+})();
+</script>
+</body>
+</html>
