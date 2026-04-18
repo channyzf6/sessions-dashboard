@@ -1,12 +1,12 @@
 {
-  "name": "web-view-mcp",
-  "version": "0.2.0",
-  "description": "MCP server that lets one or more Claude Code sessions share a live browser window via a long-lived daemon.",
+  "name": "sessions-dashboard-mcp",
+  "version": "0.3.0",
+  "description": "A live dashboard for every Claude Code session you're running. See activity in real time, organize sessions into groups, and share a browser across sessions.",
   "type": "module",
   "main": "index.mjs",
   "bin": {
-    "web-view-mcp": "./index.mjs",
-    "web-view-daemon": "./daemon.mjs"
+    "sessions-dashboard-mcp": "./index.mjs",
+    "sessions-dashboard-daemon": "./daemon.mjs"
   },
   "scripts": {
     "start": "node index.mjs",

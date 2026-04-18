@@ -1,5 +1,9 @@
 node_modules/
 
+# Private planning docs — not intended for the public repo.
+ROADMAP.md
+PUBLISHING.md
+
 # Runtime state — user-specific group assignments, recreated on first use.
 data/session-groups.json
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# One-shot installer for the web-view MCP extension.
+# One-shot installer for the sessions-dashboard MCP extension.
 # Installs deps, registers with Claude Code using the absolute path of this
 # clone, and prints a verify step.
 set -eu
@@ -19,20 +19,21 @@ echo "      First run downloads Chromium via Playwright (~150 MB) — this can t
 (cd "$here" && npm install)
 
 echo ""
-echo "[2/3] registering web-view with Claude Code"
+echo "[2/3] registering sessions-dashboard with Claude Code"
 if ! command -v claude >/dev/null 2>&1; then
   echo "  'claude' CLI not on PATH."
   echo "  Run this yourself after installing Claude Code:"
   echo ""
-  echo "    claude mcp add web-view --scope user -- node \"$index\""
+  echo "    claude mcp add sessions-dashboard --scope user -- node \"$index\""
   echo ""
   exit 1
 fi
-claude mcp add web-view --scope user -- node "$index"
+claude mcp add sessions-dashboard --scope user -- node "$index"
 
 echo ""
 echo "[3/3] done. Restart Claude Code, then ask Claude:"
 echo ""
-echo "    \"What's the status of the web-view daemon?\""
+echo "    \"Open the sessions dashboard\""
 echo ""
-echo "  Claude should invoke mcp__web-view__daemon_info and report a fresh pid."
+echo "  Claude should invoke mcp__sessions-dashboard__open_dashboard and a live"
+echo "  browser window should appear showing every connected CC session."
