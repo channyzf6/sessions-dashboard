@@ -1,4 +1,4 @@
-# One-shot installer for the web-view MCP extension (Windows / PowerShell).
+# One-shot installer for the sessions-dashboard MCP extension (Windows / PowerShell).
 # Installs deps, registers with Claude Code using the absolute path of this
 # clone, and prints a verify step.
 $ErrorActionPreference = "Stop"
@@ -12,21 +12,22 @@ Push-Location $here
 try { npm install } finally { Pop-Location }
 
 Write-Host ""
-Write-Host "[2/3] registering web-view with Claude Code"
+Write-Host "[2/3] registering sessions-dashboard with Claude Code"
 $claude = Get-Command claude -ErrorAction SilentlyContinue
 if (-not $claude) {
     Write-Host "  'claude' CLI not on PATH."
     Write-Host "  Run this yourself after installing Claude Code:"
     Write-Host ""
-    Write-Host "    claude mcp add web-view --scope user -- node `"$index`""
+    Write-Host "    claude mcp add sessions-dashboard --scope user -- node `"$index`""
     Write-Host ""
     exit 1
 }
-claude mcp add web-view --scope user -- node "$index"
+claude mcp add sessions-dashboard --scope user -- node "$index"
 
 Write-Host ""
 Write-Host "[3/3] done. Restart Claude Code, then ask Claude:"
 Write-Host ""
-Write-Host '    "What''s the status of the web-view daemon?"'
+Write-Host '    "Open the sessions dashboard"'
 Write-Host ""
-Write-Host "  Claude should invoke mcp__web-view__daemon_info and report a fresh pid."
+Write-Host "  Claude should invoke mcp__sessions-dashboard__open_dashboard and a live"
+Write-Host "  browser window should appear showing every connected CC session."

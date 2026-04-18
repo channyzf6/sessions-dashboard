@@ -13,7 +13,7 @@ const DATA_DIR = path.join(__dirname, "data");
 const DASHBOARDS_PATH = path.join(DATA_DIR, "dashboards.json");
 const SESSION_GROUPS_PATH = path.join(DATA_DIR, "session-groups.json");
 
-const PORT = parseInt(process.env.WEB_VIEW_PORT || "8787", 10);
+const PORT = parseInt(process.env.SESSIONS_DASHBOARD_PORT || "8787", 10);
 const startedAt = new Date().toISOString();
 
 // Resource caps. Loopback-only binding + Origin lockdown prevent most abuse,
@@ -558,7 +558,7 @@ const server = http.createServer(async (req, res) => {
       // Sessions push authoritative tool-use counts derived from scanning
       // their own CC JSONL. This supersedes the legacy /call increment so
       // the dashboard reflects ALL CC activity (Bash, Read, Edit, ...), not
-      // just web-view tool calls.
+      // just this MCP server's tool calls.
       const body = parseBody(await readBody(req), res);
       if (body === null) return;
       if (!requireSessionId(body, res)) return;
@@ -613,7 +613,7 @@ const server = http.createServer(async (req, res) => {
       const { op, args, sessionId } = body;
       if (sessionId && sessions.has(sessionId)) {
         // toolCalls / lastCallAt are now set by /session/activity (JSONL
-        // scan), which captures ALL CC tool uses — not just web-view ones.
+        // scan), which captures ALL CC tool uses — not just this server's.
         // This handler only bumps presence.
         sessions.get(sessionId).lastSeen = Date.now();
       }
@@ -636,15 +636,15 @@ const server = http.createServer(async (req, res) => {
 
 server.on("error", (err) => {
   if (err.code === "EADDRINUSE") {
-    console.error(`[web-view daemon] port ${PORT} already in use — exiting (another daemon won).`);
+    console.error(`[sessions-dashboard daemon] port ${PORT} already in use — exiting (another daemon won).`);
     process.exit(0);
   }
-  console.error("[web-view daemon] fatal:", err);
+  console.error("[sessions-dashboard daemon] fatal:", err);
   process.exit(1);
 });
 
 server.listen(PORT, "127.0.0.1", async () => {
-  console.error(`[web-view daemon] pid=${process.pid} listening on 127.0.0.1:${PORT} at ${startedAt}`);
+  console.error(`[sessions-dashboard daemon] pid=${process.pid} listening on 127.0.0.1:${PORT} at ${startedAt}`);
 
   // Auto-open any dashboard whose config has `autoOpen: true`.
   try {
@@ -652,7 +652,7 @@ server.listen(PORT, "127.0.0.1", async () => {
     for (const [name, d] of Object.entries(dashboards)) {
       if (d && d.autoOpen && d.url) {
         open_dashboard({ name }).catch((e) => {
-          console.error(`[web-view daemon] auto-open failed for ${name}:`, e.message);
+          console.error(`[sessions-dashboard daemon] auto-open failed for ${name}:`, e.message);
         });
       }
     }

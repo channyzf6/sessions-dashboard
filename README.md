@@ -1,8 +1,184 @@
-# web-view
+# sessions-dashboard
 
-A shared browser window for Claude Code. One long-lived daemon owns a single Chromium instance; every Claude Code session connects to it via an MCP proxy, so **multiple sessions interact with the same window**.
+**A live dashboard for every Claude Code session you're running.** See what each one's doing in real time, organize them into groups, and control their shared browser from any session.
 
-Built on Playwright. No extra runtime deps beyond Node 18+.
+<!-- TODO: add docs/dashboard.png once a clean screenshot is available -->
+
+---
+
+## Why
+
+If you run more than one Claude Code session, you quickly lose track:
+
+- Which session is working on what repo?
+- Is session 3 actively generating code right now, or idle waiting for you?
+- What tool is that long-running session stuck on?
+- How do I group related sessions (e.g. frontend + backend workers) visually?
+
+`sessions-dashboard` gives you a live, at-a-glance view:
+
+- 🟢 **`working`** — Claude is producing output right now
+- 🟣 **`running bash..`** — a tool is executing (you see which one)
+- ⚪ **`idle 2m`** — done, waiting for your next prompt
+- **Drag-and-drop groups** — organize sessions into named columns that persist across restarts
+- **Inline rename, live counters, uptime, cwd** — every card tells you exactly what that session is doing without alt-tabbing
+
+Plus, because all sessions share a browser under the hood, any session can open a webview that every other session can script — useful for coordinated debugging flows.
+
+---
+
+## Install
+
+Heads up: first `npm install` downloads Chromium via Playwright (~150 MB, 30–60 s). Hang tight.
+
+### One-command install
+
+**macOS / Linux**
+```bash
+git clone https://github.com/channyzf6/broccoli sessions-dashboard && cd sessions-dashboard && bash bin/install.sh
+```
+
+**Windows PowerShell**
+```powershell
+git clone https://github.com/channyzf6/broccoli sessions-dashboard
+cd sessions-dashboard
+powershell -ExecutionPolicy Bypass -File bin\install.ps1
+```
+
+**Windows cmd.exe** (hands off to PowerShell internally)
+```cmd
+git clone https://github.com/channyzf6/broccoli sessions-dashboard
+cd sessions-dashboard
+bin\install.bat
+```
+
+The script registers the MCP server with Claude Code as `sessions-dashboard`. Restart Claude Code, then in any session ask:
+
+> *"Open the sessions dashboard"*
+
+Claude invokes `mcp__sessions-dashboard__open_dashboard` and a live window appears.
+
+### Manual install
+
+```bash
+git clone https://github.com/channyzf6/broccoli sessions-dashboard
+cd sessions-dashboard
+npm install
+claude mcp add sessions-dashboard --scope user -- node "$(pwd)/index.mjs"
+```
+
+Or edit `~/.claude/settings.json` directly:
+
+```json
+{
+  "mcpServers": {
+    "sessions-dashboard": {
+      "command": "node",
+      "args": ["<absolute path>/index.mjs"]
+    }
+  }
+}
+```
+
+On Windows, use something like `C:\\Users\\<username>\\code\\sessions-dashboard\\index.mjs` (note the escaped backslashes). Restart Claude Code. Tools appear as `mcp__sessions-dashboard__*`.
+
+---
+
+## Quick tour
+
+### Open the dashboard
+
+Any session can open it:
+
+> *"Open the sessions dashboard"*
+
+A Chromium window appears, polling the daemon every 2 s. Every session currently using `sessions-dashboard` (or set to auto-register — see [Configuration](#configuration)) shows up as a card.
+
+### Activity indicator
+
+Each card shows a live pill:
+
+| Pill | Meaning |
+|---|---|
+| 🟢 `working` | Claude is producing output — text, thinking tokens, or about to dispatch a tool |
+| 🟣 `running bash..`, `running sessions-dashboard·screenshot..` | A tool is executing. The tool name is surfaced |
+| ⚪ `idle 2m` | Assistant finished its turn, waiting for your next prompt |
+
+The state is derived from the session's JSONL log (tail-state tracking). Long-running tools stay accurately marked as `running` — no 60-second false-idle.
+
+### Name your sessions
+
+Sessions default to their cwd. Give them nicer names three ways:
+
+- **Env var before launching:** `CLAUDE_SESSION_NAME=frontend-worker claude`
+- **`/rename` slash command** inside the session — auto-picked up within 15 s
+- **`set_session_name` tool** — Claude can call it programmatically
+
+### Group them
+
+Drag cards between groups in the dashboard. Groups match by **cwd** or **session name** — stable identifiers that survive CC restarts. Click `+ New group` to add one; click the name to rename inline; `delete` twice to remove.
+
+### Share a browser across sessions
+
+Under the hood, one Chromium instance serves all sessions. Session A can open `https://example.com`; session B can call `eval_js` on that same page; session C can screenshot it. Useful for coordinated debugging flows where one agent drives and another inspects.
+
+---
+
+## Tools
+
+All tools prefixed `mcp__sessions-dashboard__`:
+
+| Tool | Purpose |
+|---|---|
+| `open_dashboard` | Open a registered dashboard (e.g. `sessions`). The main entry point. |
+| `list_dashboards` | List registered dashboards from `data/dashboards.json`. |
+| `set_session_name` | Set or clear this session's display name. |
+| `daemon_info` | `{ pid, port, uptime, webviews, sessions }` — diagnostics. |
+| `open_webview` | Open a named browser window with a URL or HTML. |
+| `update_webview` | Navigate an already-open window. |
+| `eval_js` | Run JS in a named window; return JSON-serialized result. |
+| `screenshot` | PNG of a named window. `fullPage: true` for full scroll height. |
+| `close_webview` | Close a window. Other windows + the browser stay alive. |
+| `list_webviews` | Enumerate open windows — `{ name, url, title, startedAt }`. |
+
+The last six are the shared-browser primitives — general-purpose, not dashboard-specific.
+
+---
+
+## Configuration
+
+| Env var | Default | Purpose |
+|---|---|---|
+| `SESSIONS_DASHBOARD_PORT` | `8787` | Port the daemon binds to on loopback. All sessions must agree. |
+| `SESSIONS_DASHBOARD_AUTOSTART` | unset | Set to `1` to register this session at CC startup, so it appears in the dashboard before any tool is invoked. |
+| `CLAUDE_SESSION_NAME` | unset | Sticky display name for this session. |
+
+Set in the MCP server's `env` block in `settings.json`:
+
+```json
+{
+  "mcpServers": {
+    "sessions-dashboard": {
+      "command": "node",
+      "args": ["<path>/index.mjs"],
+      "env": { "SESSIONS_DASHBOARD_AUTOSTART": "1" }
+    }
+  }
+}
+```
+
+`SESSIONS_DASHBOARD_AUTOSTART=1` is recommended — it ensures every session shows up in the dashboard without you having to manually invoke a tool first.
+
+---
+
+## Troubleshooting
+
+- **`daemon_info` returns the PID** — use `taskkill /F /PID <pid>` (Windows) or `kill <pid>` (Unix) to force-kill a wedged daemon. Next tool call respawns it.
+- **Chromium window gone but daemon alive** — next `open_dashboard` or `open_webview` relaunches Chromium.
+- **Dashboard shows "daemon unreachable"** — daemon crashed or hasn't started yet. Run any `sessions-dashboard` tool to respawn.
+- **Session not appearing** — by default the daemon is dormant until a session calls a tool. Either invoke one (e.g. `open_dashboard`) or set `SESSIONS_DASHBOARD_AUTOSTART=1`.
+
+---
 
 ## Architecture
 
@@ -12,95 +188,22 @@ session A ──┐
 session B ──┘                                                             │
                                                                           ▼
                                                              daemon.mjs ──► Chromium
+                                                                          │
+                                                          sessions.html  ─┘ (polls /sessions)
 ```
 
-- `index.mjs` — MCP server (one per session). Pings the daemon; spawns it detached if not running.
-- `daemon.mjs` — HTTP server on `127.0.0.1:8787`. Owns the browser. Survives Claude Code restarts.
-- Concurrent daemon spawns are safe: the loser hits `EADDRINUSE` and exits cleanly.
+- **`index.mjs`** — one MCP proxy per CC session. Spawns the daemon on first use; heartbeats every 5 s; incrementally scans this session's JSONL log to report activity.
+- **`daemon.mjs`** — long-lived HTTP server on `127.0.0.1:8787`. Owns the single Chromium instance. Survives CC restarts.
+- **`data/sessions.html`** — the dashboard. Polls `/sessions` every 2 s.
 
-## Tools
+The daemon is loopback-only, resource-capped (max 50 sessions, 20 webviews), and races cleanly — concurrent spawns hit `EADDRINUSE` and exit.
 
-| Tool | Purpose |
-|---|---|
-| `open_webview` | Open the shared window with a `url` or `html`. Replaces any existing page. |
-| `update_webview` | Navigate the open window to a `url` or replace its `html`. |
-| `eval_js` | Run a JS expression (async OK) in the page; returns JSON-serialized value. |
-| `screenshot` | PNG of the page. `fullPage: true` for full scroll height. |
-| `close_webview` | Close the page and browser (daemon stays up for next open). |
-| `list_webviews` | Enumerate open named windows — `{ name, url, title, startedAt }`. |
-| `open_dashboard` | Open a registered dashboard from `data/dashboards.json` in its own named window. |
-| `list_dashboards` | List dashboards registered in `data/dashboards.json`. |
-| `set_session_name` | Set or clear a human-readable name for this session. |
-| `daemon_info` | `{ pid, port, startedAt, browserConnected, webviews[], sessions[] }` — useful for debugging. |
+See [PUBLISHING.md](PUBLISHING.md) for maintainer notes.
 
-## Install
+---
 
-Heads up: the first `npm install` downloads Chromium via Playwright (~150 MB). Takes 30-60 s; if it looks stuck, it's not — wait it out.
+## Contributing
 
-### One-command install
+Issues and PRs welcome at <https://github.com/channyzf6/broccoli>.
 
-**macOS / Linux**
-```bash
-git clone https://github.com/channyzf6/broccoli web-view && cd web-view && bash bin/install.sh
-```
-
-**Windows PowerShell**
-```powershell
-git clone https://github.com/channyzf6/broccoli web-view
-cd web-view
-powershell -ExecutionPolicy Bypass -File bin\install.ps1
-```
-
-**Windows cmd.exe** (hands off to PowerShell internally)
-```cmd
-git clone https://github.com/channyzf6/broccoli web-view
-cd web-view
-bin\install.bat
-```
-
-The script runs `npm install`, resolves the absolute path to `index.mjs`, registers the MCP server with Claude Code via `claude mcp add`, and prints a verify step. Restart Claude Code after it finishes, then ask Claude: *"What's the status of the web-view daemon?"* — it should invoke `mcp__web-view__daemon_info` and return a fresh pid.
-
-### Manual install
-
-If the script fails or you prefer to do it by hand:
-
-```bash
-git clone https://github.com/channyzf6/broccoli web-view
-cd web-view
-npm install
-claude mcp add web-view --scope user -- node "$(pwd)/index.mjs"
-```
-
-Or, instead of the CLI, edit `~/.claude/settings.json` directly:
-
-```json
-{
-  "mcpServers": {
-    "web-view": {
-      "command": "node",
-      "args": ["<absolute path to web-view>/index.mjs"]
-    }
-  }
-}
-```
-
-On Windows, use something like `C:\\Users\\<username>\\code\\web-view\\index.mjs` (note the escaped backslashes). Restart Claude Code. Tools appear as `mcp__web-view__*`.
-
-## Multi-session usage
-
-- Session A: `open_webview({ url: "..." })` → daemon starts, Chromium opens.
-- Session B: `eval_js({ expression: "document.title" })` → same page, same daemon.
-- Either session: `screenshot({})`, `update_webview({ ... })`.
-- Close Claude Code in session A → daemon keeps running → reopen or spawn session B later → browser still live.
-
-## Configuration
-
-- `WEB_VIEW_PORT` env var overrides the port (default `8787`). All sessions must agree on the port; set it in the MCP server `env` block if you change it.
-- `WEB_VIEW_AUTOSTART` — by default the daemon is **dormant** until a webview tool is invoked. Set to `1` in the MCP server `env` block to spawn the daemon + register the session at Claude Code startup (makes the session show up in the sessions dashboard before any tool is called).
-- Only one daemon is expected per port. The first to bind wins.
-
-## Troubleshooting
-
-- `daemon_info` returns the PID — use `taskkill /F /PID <pid>` (Windows) to force-kill a wedged daemon.
-- If the Chromium window is gone but the daemon is alive, next `open_webview` relaunches Chromium.
-- If `ping` / `/call` fails repeatedly, the daemon may be wedged; kill it and let the next tool call respawn it.
+Built on Playwright. No runtime deps beyond Node 18+ and `@modelcontextprotocol/sdk`.

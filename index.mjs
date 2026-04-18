@@ -1,7 +1,8 @@
 #!/usr/bin/env node
-// MCP server — thin proxy to the shared web-view daemon at 127.0.0.1:PORT.
-// Every Claude Code session spawns one of these; they all talk to the same
-// daemon process, so they share a single browser window.
+// MCP server — thin proxy to the shared sessions-dashboard daemon at
+// 127.0.0.1:PORT. Every Claude Code session spawns one of these; they all
+// talk to the same daemon process, so they share a single browser window and
+// all appear together in the live sessions dashboard.
 import http from "node:http";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -16,11 +17,12 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 
-const PORT = parseInt(process.env.WEB_VIEW_PORT || "8787", 10);
-// By default the daemon is dormant until a webview tool is invoked. Set
-// WEB_VIEW_AUTOSTART=1 in the MCP server env block to spawn + register at CC
-// startup (so this session shows up in the sessions dashboard immediately).
-const AUTOSTART = process.env.WEB_VIEW_AUTOSTART === "1";
+const PORT = parseInt(process.env.SESSIONS_DASHBOARD_PORT || "8787", 10);
+// By default the daemon is dormant until a tool is invoked. Set
+// SESSIONS_DASHBOARD_AUTOSTART=1 in the MCP server env block to spawn +
+// register at CC startup (so this session shows up in the dashboard
+// immediately, before the user invokes any tool).
+const AUTOSTART = process.env.SESSIONS_DASHBOARD_AUTOSTART === "1";
 const here = dirname(fileURLToPath(import.meta.url));
 const DAEMON_PATH = join(here, "daemon.mjs");
 const SESSION_ID = randomUUID();
@@ -30,7 +32,7 @@ const SESSION_CWD = process.cwd();
 //   CLAUDE_SESSION_NAME=my-project-worker claude
 // Or via the `set_session_name` tool at any time, or via CC's `/rename` command
 // (picked up from the session JSONL on startup and via the periodic watcher).
-let SESSION_NAME = process.env.CLAUDE_SESSION_NAME || process.env.WEB_VIEW_SESSION_NAME || null;
+let SESSION_NAME = process.env.CLAUDE_SESSION_NAME || null;
 // "env" | "manual" | "auto" | null — determines whether the name-watch loop
 // is allowed to overwrite SESSION_NAME with a newly-detected /rename.
 let SESSION_NAME_SOURCE = SESSION_NAME ? "env" : null;
@@ -54,7 +56,7 @@ async function ensureDaemon() {
     const child = spawn(process.execPath, [DAEMON_PATH], {
       detached: true,
       stdio: "ignore",
-      env: { ...process.env, WEB_VIEW_PORT: String(PORT) },
+      env: { ...process.env, SESSIONS_DASHBOARD_PORT: String(PORT) },
       windowsHide: true,
     });
     child.unref();
@@ -63,7 +65,7 @@ async function ensureDaemon() {
       await new Promise((r) => setTimeout(r, 200));
       if (await ping()) return;
     }
-    throw new Error(`web-view daemon failed to start on 127.0.0.1:${PORT}`);
+    throw new Error(`sessions-dashboard daemon failed to start on 127.0.0.1:${PORT}`);
   })();
   try { await spawnPromise; } finally { spawnPromise = null; }
 }
@@ -204,7 +206,7 @@ function startNameWatch() {
 // -----------------------------------------------------------------------------
 // Activity watch: scan this CC session's JSONL for `tool_use` entries and push
 // the count + latest-tool-use timestamp to the daemon. Captures every CC tool
-// call (Bash, Read, Edit, Grep, web-view, …) rather than just web-view ones.
+// call (Bash, Read, Edit, Grep, MCP tools, …) rather than only this MCP's ones.
 //
 // Heuristic for "our" JSONL: the JSONL in this cwd's project dir whose first
 // entry's timestamp is closest to SESSION_STARTED (within a 30 s window).
@@ -462,7 +464,7 @@ async function registerSession() {
       const now = Date.now();
       if (now - _lastCapWarnAt > 60_000) {
         _lastCapWarnAt = now;
-        console.error("[web-view] daemon session cap reached; this session will not appear in the sessions dashboard. Close an idle CC session or raise MAX_SESSIONS in daemon.mjs.");
+        console.error("[sessions-dashboard] daemon session cap reached; this session will not appear in the dashboard. Close an idle CC session or raise MAX_SESSIONS in daemon.mjs.");
       }
     }
   } catch { /* non-fatal */ }
@@ -658,7 +660,7 @@ const tools = [
 const toolMap = new Map(tools.map((t) => [t.name, t]));
 
 const server = new Server(
-  { name: "web-view", version: "0.3.0" },
+  { name: "sessions-dashboard", version: "0.3.0" },
   { capabilities: { tools: {} } }
 );
 
