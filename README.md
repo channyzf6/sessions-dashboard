@@ -39,7 +39,7 @@ Heads up: the first `npm install` downloads Chromium via Playwright (~150 MB). T
 
 ### One-command install
 
-**macOS / Linux** (also works in **Git Bash** on Windows)
+**macOS / Linux**
 ```bash
 git clone https://github.com/channyzf6/broccoli web-view && cd web-view && bash bin/install.sh
 ```
