@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<title>Web-view — Connected Sessions</title>
+<title>Sessions Dashboard</title>
 <style>
   :root {
     --bg: #0b1020;
@@ -270,7 +270,7 @@
 </head>
 <body>
 <header>
-  <h1>Connected sessions <span class="sub">— live view of all Claude Code sessions using the web-view daemon</span></h1>
+  <h1>Connected sessions <span class="sub">— live view of every Claude Code session you're running</span></h1>
 </header>
 <main>
   <div class="status-row">
@@ -362,7 +362,7 @@
   }
 
   // Prettify the raw tool name from the JSONL for display in the pill.
-  //   mcp__web-view__screenshot → web-view·screenshot
+  //   mcp__sessions-dashboard__screenshot → sessions-dashboard·screenshot
   //   Bash                      → bash
   function prettifyToolName(raw) {
     if (!raw) return "";

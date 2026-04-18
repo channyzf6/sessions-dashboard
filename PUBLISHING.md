@@ -1,6 +1,6 @@
-# web-view — Publishing & Roadmap
+# sessions-dashboard — Publishing & Roadmap
 
-Working doc for taking the `web-view` MCP server from a private hack to a public release on GitHub and the Anthropic plugin marketplace.
+Working doc for taking the `sessions-dashboard` MCP server from a private hack to a public release on GitHub and the Anthropic plugin marketplace.
 
 ---
 
@@ -43,7 +43,7 @@ session B ──┘                                                             
 ### Key design choices
 
 - **One BrowserContext per named window** (`daemon.mjs:26`). Each `name` maps to its own OS window (not a tab). `open_webview({ name: "sessions" })` opens a second window next to `open_webview({ name: "main" })`.
-- **Lazy daemon startup** (`index.mjs:23`, `WEB_VIEW_AUTOSTART`). Installing the MCP server does **not** spawn a background process. The daemon boots on the first tool call. Set `WEB_VIEW_AUTOSTART=1` in the MCP server env block to opt into eager spawn (makes the session appear in the sessions dashboard before any tool is called).
+- **Lazy daemon startup** (`index.mjs:23`, `SESSIONS_DASHBOARD_AUTOSTART`). Installing the MCP server does **not** spawn a background process. The daemon boots on the first tool call. Set `SESSIONS_DASHBOARD_AUTOSTART=1` in the MCP server env block to opt into eager spawn (makes the session appear in the sessions dashboard before any tool is called).
 - **Session presence via heartbeat**. MCP proxies POST to `/session/register` on first activity, heartbeat `/session/heartbeat` every 5 s, and `unregister` best-effort on shutdown. Stale sessions (no heartbeat for 15 s) are expired server-side.
 - **Session-name discovery** (`index.mjs:114`). The proxy scans `~/.claude/projects/<encoded-cwd>/*.jsonl` for `/rename` commands and adopts the latest — so a user-chosen name survives CC restarts without config.
 - **Concurrent-safe spawn**. If two MCP proxies start simultaneously and both try to spawn the daemon, the loser hits `EADDRINUSE` and exits cleanly (`daemon.mjs`).
@@ -79,16 +79,16 @@ session B ──┘                                                             
 What follows is a drop-in replacement for the repo's root `README.md` when it goes public. Kept skimmable; heavy on copy-pasteable commands.
 
 ````markdown
-# web-view
+# sessions-dashboard
 
-> A shared browser window for AI agents. One Chromium instance, many sessions.
+> A live dashboard for every Claude Code session you're running.
 
-[![npm](https://img.shields.io/npm/v/web-view-mcp.svg)](https://www.npmjs.com/package/web-view-mcp)
+[![npm](https://img.shields.io/npm/v/sessions-dashboard-mcp.svg)](https://www.npmjs.com/package/sessions-dashboard-mcp)
 [![mcp](https://img.shields.io/badge/MCP-compatible-blue)](https://modelcontextprotocol.io)
 
 <!-- demo.gif goes here — two CC sessions updating the same dashboard side-by-side -->
 
-Most browser-automation MCPs (playwright-mcp, browser-use) give each session its own headless browser. `web-view` does the opposite: **one long-lived daemon owns a single Chromium instance, and every MCP client connects to the same windows**. Two agents can watch the same dashboard, drive the same app, or coordinate via a shared UI surface.
+Most browser-automation MCPs (playwright-mcp, browser-use) give each session its own headless browser. `sessions-dashboard` does the opposite: **one long-lived daemon owns a single Chromium instance, and every MCP client connects to the same windows** — and on top of that, it surfaces a live dashboard of every connected session with real-time activity tracking. Two agents can watch the same dashboard, drive the same app, or coordinate via a shared UI surface.
 
 ## Why
 
@@ -99,28 +99,28 @@ Most browser-automation MCPs (playwright-mcp, browser-use) give each session its
 ## Install
 
 ```bash
-npm install -g web-view-mcp
+npm install -g sessions-dashboard-mcp
 ```
 
 Then register it with your MCP client.
 
 **Claude Code:**
 ```bash
-claude mcp add web-view -- npx -y web-view-mcp
+claude mcp add sessions-dashboard -- npx -y sessions-dashboard-mcp
 ```
 
 **Claude Desktop** — add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or `%APPDATA%\Claude\claude_desktop_config.json` (Windows):
 ```json
 {
   "mcpServers": {
-    "web-view": { "command": "npx", "args": ["-y", "web-view-mcp"] }
+    "sessions-dashboard": { "command": "npx", "args": ["-y", "sessions-dashboard-mcp"] }
   }
 }
 ```
 
 **Cursor** — add to `~/.cursor/mcp.json` with the same config.
 
-Restart your client. Tools appear as `mcp__web-view__*`.
+Restart your client. Tools appear as `mcp__sessions-dashboard__*`.
 
 ## Quickstart
 
@@ -149,8 +149,8 @@ From a second session, call `eval_js` on the same window — you're looking at t
 
 Env vars, settable in the MCP server's `env` block:
 
-- `WEB_VIEW_PORT` — port (default `8787`). All sessions must agree on the port.
-- `WEB_VIEW_AUTOSTART` — `1` to spawn the daemon at MCP server startup. Default is **lazy**: the daemon is dormant until you invoke a tool. Set `1` if you want this session to appear in the sessions dashboard immediately.
+- `SESSIONS_DASHBOARD_PORT` — port (default `8787`). All sessions must agree on the port.
+- `SESSIONS_DASHBOARD_AUTOSTART` — `1` to spawn the daemon at MCP server startup. Default is **lazy**: the daemon is dormant until you invoke a tool. Set `1` if you want this session to appear in the sessions dashboard immediately.
 
 ## Shared dashboards
 
@@ -172,7 +172,7 @@ Then `open_dashboard({ name: "sessions" })` opens it with the right size and tit
 
 ## Troubleshooting
 
-- **`daemon_info` says the daemon is elsewhere.** `WEB_VIEW_PORT` mismatch between clients.
+- **`daemon_info` says the daemon is elsewhere.** `SESSIONS_DASHBOARD_PORT` mismatch between clients.
 - **Windows won't open.** The daemon may be wedged. `taskkill /F /PID <pid>` (Windows) or `kill <pid>` (macOS/Linux). Next tool call respawns.
 - **Chromium closed manually, daemon still alive.** Next `open_webview` relaunches the browser.
 
@@ -191,20 +191,20 @@ This is the primary distribution path. Works with every MCP client (Claude Code,
 
 **Prep checklist:**
 
-1. Choose a package name — `web-view-mcp`, `mcp-web-view`, or `@<scope>/web-view` if scoped.
-2. Verify it's available: `npm view web-view-mcp`.
+1. Choose a package name — `sessions-dashboard-mcp`, `mcp-sessions-dashboard`, or `@<scope>/sessions-dashboard` if scoped.
+2. Verify it's available: `npm view sessions-dashboard-mcp`.
 3. Audit `package.json`:
-   - `"bin": { "web-view-mcp": "./index.mjs" }` — makes the package runnable via `npx`.
+   - `"bin": { "sessions-dashboard-mcp": "./index.mjs" }` — makes the package runnable via `npx`.
    - `"main": "./index.mjs"`, `"type": "module"`, `"engines": { "node": ">=18" }`.
    - `"files"`: include `index.mjs`, `daemon.mjs`, `data/`, `README.md`, `LICENSE`. Exclude `node_modules`, `*.rendered.html`, local dashboards you don't want to ship.
    - `"postinstall": "node node_modules/playwright/install.js chromium"` — pulls Chromium on install so users don't hit a first-run delay. (Or use `playwright-core` + make users run `npx playwright install chromium` explicitly; trade-off between install-time footprint and UX.)
 4. Add a `LICENSE` file (MIT recommended — max adoption).
-5. Smoke-test with `npm pack && npm install -g ./web-view-mcp-0.3.0.tgz` before publishing.
+5. Smoke-test with `npm pack && npm install -g ./sessions-dashboard-mcp-0.3.0.tgz` before publishing.
 6. `npm publish --access public`.
 
 **Then the install story is one command:**
 ```bash
-claude mcp add web-view -- npx -y web-view-mcp
+claude mcp add sessions-dashboard -- npx -y sessions-dashboard-mcp
 ```
 
 ### Option B — ship as a Claude Code plugin (better CC-user onboarding)
@@ -213,10 +213,10 @@ Plugins bundle MCP servers, skills, commands, and hooks into a single installabl
 
 **Plugin layout:**
 ```
-web-view-plugin/
+sessions-dashboard-plugin/
 ├── plugin.json           # plugin manifest
 ├── mcp/
-│   └── web-view/         # bundled MCP server (or depend on npm package)
+│   └── sessions-dashboard/ # bundled MCP server (or depend on npm package)
 ├── skills/
 │   └── open-dashboard/   # trigger skill
 │       └── SKILL.md
@@ -227,11 +227,11 @@ web-view-plugin/
 **`plugin.json` skeleton:**
 ```json
 {
-  "name": "web-view",
+  "name": "sessions-dashboard",
   "version": "1.0.0",
   "description": "Shared browser window for Claude Code agents",
   "mcpServers": {
-    "web-view": { "command": "npx", "args": ["-y", "web-view-mcp"] }
+    "sessions-dashboard": { "command": "npx", "args": ["-y", "sessions-dashboard-mcp"] }
   },
   "skills": ["skills/open-dashboard"],
   "commands": ["commands/sessions.md"]
@@ -274,7 +274,7 @@ Must-have before going public:
 
 Nice-to-haves:
 
-- [ ] Prebuilt Chromium skip flag (`WEB_VIEW_SKIP_BROWSER_INSTALL=1`) for users who already have Playwright's browsers.
+- [ ] Prebuilt Chromium skip flag (`SESSIONS_DASHBOARD_SKIP_BROWSER_INSTALL=1`) for users who already have Playwright's browsers.
 - [ ] `--version` / `--help` flags on the binary for discoverability.
 - [ ] A "hello world" example repo that uses the MCP server from a custom agent.
 
@@ -284,7 +284,7 @@ Nice-to-haves:
 
 ### v0.4 — polish (private)
 - [x] Client-side refresh pattern for file://-loaded dashboards (fetch daemon endpoints via CORS).
-- [x] Lazy-by-default daemon startup (`WEB_VIEW_AUTOSTART`).
+- [x] Lazy-by-default daemon startup (`SESSIONS_DASHBOARD_AUTOSTART`).
 - [ ] Click-to-focus: click a session in the sessions dashboard to foreground that terminal (HWND registry + `SetForegroundWindow` via a small PowerShell bridge on Windows; `osascript` / `wmctrl` on macOS / Linux).
 - [ ] Hot-reload of `dashboards.json` (watch file, push to open windows).
 - [ ] Dashboard `autoOpen: true` — auto-open flagged dashboards on daemon boot.
@@ -296,7 +296,7 @@ Nice-to-haves:
 - [ ] Launch post (see §8).
 
 ### v1.1+ — growth
-- [ ] **Optional auth token.** Env var `WEB_VIEW_TOKEN`; daemon rejects calls without it. Unblocks non-localhost scenarios.
+- [ ] **Optional auth token.** Env var `SESSIONS_DASHBOARD_TOKEN`; daemon rejects calls without it. Unblocks non-localhost scenarios.
 - [ ] **Remote mode.** Daemon on a different machine. Useful for headless servers + remote dashboards.
 - [ ] **Pluggable window backend.** Currently Chromium-only; add Webkit and Firefox via Playwright's other drivers.
 - [ ] **Window tiling API.** `arrange_windows({ layout: "grid" })` for demos with many dashboards.
@@ -357,13 +357,13 @@ Known limits to be upfront about:
 - 500+ GitHub stars in month 1
 - 5+ community-contributed dashboards / plugins built on top
 - Mentioned or featured by Anthropic at least once
-- At least one "I built X on top of web-view" blog post from someone else
+- At least one "I built X on top of sessions-dashboard" blog post from someone else
 
 ---
 
 ## 9. Open questions to resolve before launch
 
-- **Package name.** `web-view-mcp` is descriptive but generic. Alternatives: `mcp-coven` (multi-agent vibe), `shared-view`, `glass`. A memorable name helps — this is worth 30 minutes of thought.
+- **Package name.** `sessions-dashboard-mcp` is descriptive but generic. Alternatives: `mcp-coven` (multi-agent vibe), `shared-view`, `glass`. A memorable name helps — this is worth 30 minutes of thought.
 - **Maintainer identity.** Personal repo, an org, or community? Affects issue triage expectations and perceived seriousness.
 - **Demo dashboard to ship.** `sessions.html` is solid baseline infrastructure. Add a second, visually appealing example dashboard (multi-agent task tracker, shared experiment log, etc.) so the demo GIF has something to point at.
 - **Is the plugin a separate repo?** Mono-repo simpler; split repo makes each pitch cleaner. Default: mono-repo with a `plugin/` subdir.
