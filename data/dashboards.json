@@ -1,0 +1,12 @@
+{
+  "dashboards": {
+    "sessions": {
+      "title": "Web-view — Connected Sessions",
+      "url": "sessions.html",
+      "width": 900,
+      "height": 700,
+      "autoOpen": false,
+      "description": "Live view of every Claude Code session currently connected to the web-view daemon. Polls /sessions every 2 s."
+    }
+  }
+}

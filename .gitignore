@@ -1,0 +1,13 @@
+node_modules/
+
+# Runtime state — user-specific group assignments, recreated on first use.
+data/session-groups.json
+
+# Atomic-write tempfiles from the daemon's session-groups persistence.
+*.tmp
+
+# OS / editor crud
+.DS_Store
+.vscode/
+.idea/
+*.swp
