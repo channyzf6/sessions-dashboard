@@ -22,9 +22,16 @@ if (-not $claude) {
     Write-Host ""
     exit 1
 }
-# Remove first so re-running the installer (e.g. after moving the clone) is a
-# no-op update rather than a hard failure from duplicate registration.
-& claude mcp remove sessions-dashboard --scope user 2>$null | Out-Null
+# Remove first so re-running the installer (e.g. after moving the clone) is
+# a no-op update rather than a hard failure from duplicate registration.
+# On PowerShell 7.4+ with $ErrorActionPreference='Stop' and the default
+# $PSNativeCommandUseErrorActionPreference=$true, a non-zero exit from
+# `claude mcp remove` (which happens on first install, when there's nothing
+# to remove) throws a terminating NativeCommandExitException that halts
+# the script. Catch and discard it — re-removal failing is expected.
+try {
+    & claude mcp remove sessions-dashboard --scope user 2>$null | Out-Null
+} catch {}
 claude mcp add sessions-dashboard --scope user -- node "$index"
 
 Write-Host ""
