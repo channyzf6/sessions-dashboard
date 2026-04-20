@@ -536,22 +536,40 @@
   // Move a session into the target group (or to Ungrouped when targetGroupId
   // is null). Returns true if anything changed.
   //
-  // Removing: strip ANY rule that currently matches this session — not just
-  // the rule corresponding to our preferred matchKey. A session can be
-  // grouped by one identifier (e.g. cwd, when it had no name) and later
-  // acquire a different identifier (e.g. sessionName after /rename). If we
-  // only removed rules for the preferred matchKey, the stale rule would
-  // keep the session pinned to its old group and the drag would appear to
-  // do nothing.
+  // Removing rules that match this session is nuanced:
+  //   - sessionName-based rules are uniquely tied to one session (names are
+  //     per-session), so always safe to remove.
+  //   - cwd-based rules can apply to a cohort of sessions sharing a repo.
+  //     Removing a cwd rule that other currently-connected sessions also
+  //     match would silently kick those unrelated cohort-mates out of their
+  //     group. Preserve cwd rules that have active cohort dependents.
+  //
+  // This still fixes the stale-rule bug (session grouped by cwd before being
+  // renamed can now be dragged out) because in that case there's no other
+  // session matching the cwd rule, so removal is safe.
   function assignSessionToGroup(session, targetGroupId) {
     const mk = matchKeyForSession(session);
     if (!mk) return false; // no stable identifier — can't persist
 
     let changed = false;
     for (const g of groupsState) {
-      const before = g.members.length;
-      g.members = g.members.filter((m) => !memberMatchesSession(m, session));
-      if (g.members.length !== before) changed = true;
+      const keep = [];
+      for (const m of g.members) {
+        if (!memberMatchesSession(m, session)) { keep.push(m); continue; }
+        if (m.key === "sessionName") {
+          // Session-specific. Drop.
+          changed = true;
+        } else if (m.key === "cwd") {
+          // Potentially a cohort rule. Only drop if no other currently-
+          // connected session depends on it.
+          const affectsCohort = sessionsState.some(
+            (other) => other.id !== session.id && memberMatchesSession(m, other),
+          );
+          if (affectsCohort) keep.push(m);
+          else changed = true;
+        }
+      }
+      if (keep.length !== g.members.length) g.members = keep;
     }
     if (targetGroupId) {
       const g = groupsState.find((x) => x.id === targetGroupId);
@@ -881,16 +899,29 @@
     // Ensure each group has a color (assign from palette when missing).
     groupsState.forEach((g, i) => { if (!g.color) g.color = COLORS[i % COLORS.length]; });
 
-    // Bucket sessions by first-matching group. Track remaining for Ungrouped.
+    // Bucket sessions into groups. Matching is two-pass: sessionName rules
+    // (specific) win over cwd rules (potentially cohort-shared), regardless
+    // of group order. This lets a user drag one named session out of a
+    // cohort into a new group without disturbing the unnamed cohort-mates:
+    // the new {sessionName: X} rule takes precedence over the remaining
+    // {cwd: Y} cohort rule even if the cohort group comes first in order.
     const bucket = new Map();
     for (const g of groupsState) bucket.set(g.id, []);
     const ungrouped = [];
-    for (const s of sessionsState) {
-      let placed = false;
+    const groupMatchingMember = (s, keyPref) => {
       for (const g of groupsState) {
-        if (sessionMatchesGroup(s, g)) { bucket.get(g.id).push(s); placed = true; break; }
+        for (const m of g.members || []) {
+          if (m.key === keyPref && memberMatchesSession(m, s)) return g;
+        }
       }
-      if (!placed) ungrouped.push(s);
+      return null;
+    };
+    for (const s of sessionsState) {
+      const g = (s.sessionName && groupMatchingMember(s, "sessionName"))
+             || (s.cwd && groupMatchingMember(s, "cwd"))
+             || null;
+      if (g) bucket.get(g.id).push(s);
+      else ungrouped.push(s);
     }
 
     // Render each named group in order.
