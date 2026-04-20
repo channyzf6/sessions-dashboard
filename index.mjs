@@ -114,74 +114,54 @@ function httpPost(path, body, { timeoutMs = 3000 } = {}) {
   });
 }
 
-// Discover a session name from Claude Code's own session logs. CC stores
+// Discover this session's name from Claude Code's own session log. CC stores
 // each session as a JSONL at ~/.claude/projects/<encoded-cwd>/<uuid>.jsonl.
 // When the user runs `/rename <name>`, a line like
 //   {..., "content":"<command-name>/rename</command-name>...<command-args>NAME</command-args>"}
-// gets appended. We scan all JSONLs for this project, find the latest
-// /rename by timestamp, and use that name.
+// gets appended.
 //
-// Cached by file mtime so re-scanning an active session's 5 MB JSONL on
-// every heartbeat is cheap (just a stat unless the file changed). Entries
-// for JSONLs that have been deleted get evicted each scan, and the cache is
-// bounded so a user churning through many project dirs can't grow it unbounded.
+// IMPORTANT: scope the search to OUR session's JSONL only (via identifyOwnJsonl).
+// Scanning every JSONL in the cwd causes cross-contamination when multiple CC
+// sessions share a repo — renaming one would spuriously rename the others.
+//
+// Cached by file mtime so re-reading the same JSONL on every heartbeat is
+// cheap (just a stat unless the file changed).
 const _nameCache = new Map(); // filepath -> { mtimeMs, latest: {name, ts} | null }
-const _NAME_CACHE_CAP = 200;
+const _NAME_CACHE_CAP = 32;
 
 async function discoverSessionName() {
   try {
-    const home = process.env.USERPROFILE || process.env.HOME;
-    if (!home) return null;
-    const encoded = SESSION_CWD.replace(/[:\\/_]/g, "-");
-    const dir = path.join(home, ".claude", "projects", encoded);
-    let entries;
-    try { entries = await fsp.readdir(dir); } catch { return null; }
-    let bestName = null;
-    let bestTs = 0;
-    const visited = new Set();
-    for (const f of entries) {
-      if (!f.endsWith(".jsonl")) continue;
-      const fp = path.join(dir, f);
-      visited.add(fp);
-      let st;
-      try { st = await fsp.stat(fp); } catch { continue; }
-      let entry = _nameCache.get(fp);
-      if (!entry || entry.mtimeMs !== st.mtimeMs) {
-        let localBest = null;
-        let content;
-        try { content = await fsp.readFile(fp, "utf8"); } catch { continue; }
-        for (const line of content.split(/\r?\n/)) {
-          if (!line.includes("/rename")) continue;
-          let obj; try { obj = JSON.parse(line); } catch { continue; }
-          const c = String(obj?.content ?? "");
-          const m = c.match(/<command-name>\/rename<\/command-name>[\s\S]*?<command-args>([^<]*)<\/command-args>/);
-          if (!m) continue;
-          const argName = m[1].trim();
-          if (!argName) continue;
-          const ts = obj.timestamp ? Date.parse(obj.timestamp) : 0;
-          if (!localBest || ts >= localBest.ts) localBest = { name: argName, ts };
-        }
-        entry = { mtimeMs: st.mtimeMs, latest: localBest };
-        _nameCache.set(fp, entry);
+    const fp = await identifyOwnJsonl();
+    if (!fp) return null;
+    let st;
+    try { st = await fsp.stat(fp); } catch { return null; }
+    let entry = _nameCache.get(fp);
+    if (!entry || entry.mtimeMs !== st.mtimeMs) {
+      let localBest = null;
+      let content;
+      try { content = await fsp.readFile(fp, "utf8"); } catch { return null; }
+      for (const line of content.split(/\r?\n/)) {
+        if (!line.includes("/rename")) continue;
+        let obj; try { obj = JSON.parse(line); } catch { continue; }
+        const c = String(obj?.content ?? "");
+        const m = c.match(/<command-name>\/rename<\/command-name>[\s\S]*?<command-args>([^<]*)<\/command-args>/);
+        if (!m) continue;
+        const argName = m[1].trim();
+        if (!argName) continue;
+        const ts = obj.timestamp ? Date.parse(obj.timestamp) : 0;
+        if (!localBest || ts >= localBest.ts) localBest = { name: argName, ts };
       }
-      if (entry.latest && entry.latest.ts >= bestTs) {
-        bestTs = entry.latest.ts;
-        bestName = entry.latest.name;
-      }
+      entry = { mtimeMs: st.mtimeMs, latest: localBest };
+      _nameCache.set(fp, entry);
     }
-    // Evict stale entries from this directory that we didn't visit this call
-    // (the JSONL has been removed) — these are dead weight in the cache.
-    for (const k of _nameCache.keys()) {
-      if (k.startsWith(dir + path.sep) && !visited.has(k)) _nameCache.delete(k);
-    }
-    // Cap global cache size (LRU-ish: Map preserves insertion order, so the
-    // oldest entries go first). Cheap safety net for users who work across
-    // many project directories over a single long-lived CC session.
+    // Cap cache size (LRU-ish via Map insertion order) — since we only ever
+    // cache one file per session, this effectively caps to the number of
+    // distinct JSONLs this proxy has ever seen identifyOwnJsonl resolve to.
     while (_nameCache.size > _NAME_CACHE_CAP) {
       const oldest = _nameCache.keys().next().value;
       _nameCache.delete(oldest);
     }
-    return bestName;
+    return entry.latest ? entry.latest.name : null;
   } catch {
     return null;
   }
@@ -198,6 +178,14 @@ function startNameWatch() {
       SESSION_NAME = d;
       SESSION_NAME_SOURCE = "auto";
       httpPost("/session/rename", { sessionId: SESSION_ID, sessionName: d }).catch(() => {});
+    } else if (d == null && SESSION_NAME_SOURCE === "auto" && SESSION_NAME) {
+      // Our own JSONL has no /rename but we had auto-set a name previously
+      // (e.g. from an earlier buggy version that cross-contaminated from a
+      // sibling session's JSONL). Clear the stale name so the dashboard
+      // reflects reality.
+      SESSION_NAME = null;
+      SESSION_NAME_SOURCE = null;
+      httpPost("/session/rename", { sessionId: SESSION_ID, sessionName: null }).catch(() => {});
     }
   }, 15000);
   t.unref();
