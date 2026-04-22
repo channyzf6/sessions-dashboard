@@ -963,8 +963,14 @@
     card.classList.remove("fresh", "idle");
     card.classList.add(s.lastSeenAgoMs < TIMINGS.freshThresholdMs ? "fresh" : "idle");
 
-    // Tooltip refresh (uptime changes every tick; rest is stable per session).
-    card.title = buildCardTooltip(s);
+    // Tooltip refresh — but NOT while the card is being hovered. Rewriting
+    // `title` on an active tooltip closes and re-opens the native popup on
+    // every update, causing a visible blink every 2s. Accepting slightly
+    // stale uptime while hovered is a fine trade — the tooltip refreshes
+    // the next time the user hovers away and back.
+    if (!card.matches(":hover")) {
+      card.title = buildCardTooltip(s);
+    }
 
     // Status pill — replace in place so working/idle transitions animate.
     const oldStatus = card.querySelector(".status");
