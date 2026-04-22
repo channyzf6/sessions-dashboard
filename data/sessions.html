@@ -786,20 +786,28 @@
     });
     nameInput.addEventListener("blur", () => {
       const typed = nameInput.textContent.trim();
-      const newName = typed || group.name;
-      const saved = typed && newName !== group.name;
-      const reverted = !typed || (typed && newName === group.name);
+      // Re-lookup by id. The `group` captured in this closure may be orphaned
+      // — a poll between the initial render and this blur replaces
+      // groupsState with a fresh array, leaving the old object unreferenced.
+      // Mutating the orphan loses the rename; the live groupsState entry
+      // keeps the old name and the next render rebuild reverts the DOM.
+      const live = groupsState.find((g) => g.id === group.id);
+      if (!live) {
+        // Group was deleted while the name was being edited; nothing to save.
+        nameInput.textContent = "";
+        return;
+      }
+      const newName = typed || live.name;
+      const saved = typed && newName !== live.name;
       if (saved) {
-        group.name = newName;
+        live.name = newName;
         saveGroups();
       }
-      nameInput.textContent = group.name;
+      nameInput.textContent = live.name;
       // Brief visual feedback so users see that blur did something. Green for
       // a save that took, amber for revert (whitespace-only or unchanged).
       nameInput.classList.remove("flash-save", "flash-revert");
-      // Force a reflow so the next class add triggers the transition even
-      // when the class was just removed.
-      void nameInput.offsetWidth;
+      void nameInput.offsetWidth; // force reflow so the next class add transitions
       nameInput.classList.add(saved ? "flash-save" : "flash-revert");
       setTimeout(() => nameInput.classList.remove("flash-save", "flash-revert"), 700);
     });
