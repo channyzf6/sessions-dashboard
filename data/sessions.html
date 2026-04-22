@@ -202,6 +202,23 @@
   .session.fresh { border-color: rgba(74,222,128,.5); }
   .session.idle  { border-color: rgba(245,193,58,.4); opacity: .88; }
   .session .row { display: flex; align-items: center; gap: .55rem; min-width: 0; }
+  /* Host glyph — small dim badge before the pid. Hue shifts per host so the
+     two CLIs are distinguishable at a glance but never loud. */
+  .session .host {
+    font-family: ui-sans-serif, system-ui, sans-serif;
+    font-weight: 700;
+    font-size: .7rem;
+    line-height: 1;
+    padding: .18rem .33rem;
+    border-radius: 4px;
+    flex-shrink: 0;
+    letter-spacing: .02em;
+    color: var(--muted);
+    background: rgba(255,255,255,.04);
+    border: 1px solid rgba(255,255,255,.06);
+  }
+  .session .host-claude { color: #c39bff; border-color: rgba(195,155,255,.25); }
+  .session .host-gemini { color: #7fd4c5; border-color: rgba(127,212,197,.25); }
   .session .pid { color: var(--blue); font-weight: 600; flex-shrink: 0; }
   .session .name {
     color: var(--gold); font-weight: 700;
@@ -385,6 +402,19 @@
     if (!p) return "—";
     const parts = String(p).split(/[\\/]/).filter(Boolean);
     return parts.length >= 2 ? parts.slice(-2).join("/") : parts.join("/") || p;
+  }
+
+  // Host identifier — shown as a small glyph beside the pid on each card
+  // so users can tell Claude sessions from Gemini (or future CLIs) at a glance.
+  function hostGlyph(h) {
+    if (h === "gemini") return "G";
+    if (h === "claude") return "C";
+    return "?";
+  }
+  function hostLabel(h) {
+    if (h === "gemini") return "Gemini CLI";
+    if (h === "claude") return "Claude Code";
+    return "unknown host";
   }
 
   // Context-window sizes for known Claude models. The proxy reports model as
@@ -619,11 +649,16 @@
     li.dataset.sessionId = s.id || "";
     li.dataset.cwd = s.cwd || "";
     li.dataset.sessionName = s.sessionName || "";
+    li.dataset.host = s.host || "claude";
 
-    // Top row: pid number (no "pid " prefix — color + mono already signal
-    // "technical id"; we surface it via title tooltip for disambiguation)
-    // + primary identifier (sessionName or cwd basename) + status pill.
+    // Top row: host glyph + pid + primary identifier (sessionName or cwd
+    // basename) + status pill. Host glyph lets the user tell at a glance
+    // which CLI this card belongs to (C = Claude Code, G = Gemini CLI).
     const row1 = document.createElement("div"); row1.className = "row";
+    const host = document.createElement("span"); host.className = "host host-" + (s.host || "claude");
+    host.textContent = hostGlyph(s.host);
+    host.title = hostLabel(s.host);
+    row1.append(host);
     const pid = document.createElement("span"); pid.className = "pid";
     pid.textContent = s.pid != null ? String(s.pid) : "?";
     pid.title = "pid " + (s.pid ?? "unknown");
