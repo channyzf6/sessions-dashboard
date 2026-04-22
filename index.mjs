@@ -27,11 +27,16 @@ const DAEMON_PATH = join(here, "daemon.mjs");
 const SESSION_ID = randomUUID();
 const SESSION_STARTED = new Date().toISOString();
 const SESSION_CWD = process.cwd();
-// Optional human-readable session name. User can set this before launching CC:
-//   CLAUDE_SESSION_NAME=my-project-worker claude
-// Or via the `set_session_name` tool at any time, or via CC's `/rename` command
-// (picked up from the session JSONL on startup and via the periodic watcher).
-let SESSION_NAME = process.env.CLAUDE_SESSION_NAME || null;
+// Optional human-readable session name. Priority:
+//   1. SESSIONS_DASHBOARD_SESSION_NAME env (cross-host canonical)
+//   2. CLAUDE_SESSION_NAME env (backward-compat alias — pre-multi-host)
+//   3. set_session_name MCP tool at any time (source = "manual")
+//   4. host-specific rename scrape, e.g. Claude /rename (source = "auto")
+// Gemini CLI has no rename equivalent; Gemini users should use #1 or #3.
+let SESSION_NAME =
+  process.env.SESSIONS_DASHBOARD_SESSION_NAME
+  || process.env.CLAUDE_SESSION_NAME
+  || null;
 // "env" | "manual" | "auto" | null — determines whether the name-watch loop
 // is allowed to overwrite SESSION_NAME with a newly-detected /rename.
 let SESSION_NAME_SOURCE = SESSION_NAME ? "env" : null;
