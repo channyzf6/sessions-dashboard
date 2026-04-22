@@ -367,6 +367,7 @@ function listSessions() {
     pid: s.pid,
     cwd: s.cwd,
     sessionName: s.sessionName ?? null,
+    host: s.host ?? "claude",
     clientInfo: s.clientInfo ?? null,
     startedAt: s.startedAt,
     lastSeen: s.lastSeen,
@@ -536,7 +537,7 @@ const server = http.createServer(async (req, res) => {
       const body = parseBody(await readBody(req), res);
       if (body === null) return;
       if (!requireSessionId(body, res)) return;
-      const { sessionId, pid, cwd, startedAt: sStarted, clientInfo, sessionName } = body;
+      const { sessionId, pid, cwd, startedAt: sStarted, clientInfo, sessionName, host } = body;
       // Cap total registered sessions so a local process can't balloon the
       // Map via register-with-random-UUID in a tight loop. Re-registering a
       // known id is always allowed (it's an idempotent upsert).
@@ -555,6 +556,10 @@ const server = http.createServer(async (req, res) => {
         cwd: cwd ?? null,
         clientInfo: clientInfo ?? null,
         sessionName: sessionName ?? prev?.sessionName ?? null,
+        // Host identifies which CLI spawned the session's proxy (claude, gemini, ...).
+        // Preserved across re-registrations so a transient /register from an older
+        // client that omits the field can't wipe the previously-detected host.
+        host: host ?? prev?.host ?? "claude",
         startedAt: sStarted ?? new Date().toISOString(),
         lastSeen: Date.now(),
         toolCalls: prev?.toolCalls ?? 0,

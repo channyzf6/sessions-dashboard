@@ -8,14 +8,13 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
-import fsp from "node:fs/promises";
-import path from "node:path";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
+import { detectHost, makeAdapter } from "./lib/host/registry.mjs";
 
 const PORT = parseInt(process.env.SESSIONS_DASHBOARD_PORT || "8787", 10);
 // By default the daemon is dormant until a tool is invoked. Set
@@ -28,14 +27,35 @@ const DAEMON_PATH = join(here, "daemon.mjs");
 const SESSION_ID = randomUUID();
 const SESSION_STARTED = new Date().toISOString();
 const SESSION_CWD = process.cwd();
-// Optional human-readable session name. User can set this before launching CC:
-//   CLAUDE_SESSION_NAME=my-project-worker claude
-// Or via the `set_session_name` tool at any time, or via CC's `/rename` command
-// (picked up from the session JSONL on startup and via the periodic watcher).
-let SESSION_NAME = process.env.CLAUDE_SESSION_NAME || null;
+// Optional human-readable session name. Priority:
+//   1. SESSIONS_DASHBOARD_SESSION_NAME env (cross-host canonical)
+//   2. CLAUDE_SESSION_NAME env (backward-compat alias — pre-multi-host)
+//   3. set_session_name MCP tool at any time (source = "manual")
+//   4. host-specific rename scrape, e.g. Claude /rename (source = "auto")
+// Gemini CLI has no rename equivalent; Gemini users should use #1 or #3.
+let SESSION_NAME =
+  process.env.SESSIONS_DASHBOARD_SESSION_NAME
+  || process.env.CLAUDE_SESSION_NAME
+  || null;
 // "env" | "manual" | "auto" | null — determines whether the name-watch loop
 // is allowed to overwrite SESSION_NAME with a newly-detected /rename.
 let SESSION_NAME_SOURCE = SESSION_NAME ? "env" : null;
+
+// Detect host (Claude Code / Gemini CLI / ...) and build an adapter that
+// knows how to read this CLI's transcript for activity + name detection.
+// Resolves synchronously here; detectHost is async but only I/O-free checks
+// so we defer the actual construction slightly.
+let SESSION_HOST = "claude"; // set below once detectHost resolves
+let adapter = null;
+const adapterReady = (async () => {
+  SESSION_HOST = await detectHost({ cwd: SESSION_CWD });
+  adapter = makeAdapter({
+    host: SESSION_HOST,
+    cwd: SESSION_CWD,
+    sessionStart: SESSION_STARTED,
+    pid: process.pid,
+  });
+})();
 
 function ping(timeoutMs = 300) {
   return new Promise((resolve) => {
@@ -114,78 +134,26 @@ function httpPost(path, body, { timeoutMs = 3000 } = {}) {
   });
 }
 
-// Discover this session's name from Claude Code's own session log. CC stores
-// each session as a JSONL at ~/.claude/projects/<encoded-cwd>/<uuid>.jsonl.
-// When the user runs `/rename <name>`, a line like
-//   {..., "content":"<command-name>/rename</command-name>...<command-args>NAME</command-args>"}
-// gets appended.
-//
-// IMPORTANT: scope the search to OUR session's JSONL only (via identifyOwnJsonl).
-// Scanning every JSONL in the cwd causes cross-contamination when multiple CC
-// sessions share a repo — renaming one would spuriously rename the others.
-//
-// Cached by file mtime so re-reading the same JSONL on every heartbeat is
-// cheap (just a stat unless the file changed).
-const _nameCache = new Map(); // filepath -> { mtimeMs, latest: {name, ts} | null }
-const _NAME_CACHE_CAP = 32;
-
-// Tri-state return so the watcher can distinguish:
-//   - string: found a /rename → adopt this name.
-//   - null:   read succeeded AND no /rename present → clear any stale name.
-//   - undefined: I/O error OR JSONL not yet resolvable → leave state alone
-//                so a transient hiccup doesn't flicker-clear a valid name.
-async function discoverSessionName() {
-  const fp = await resolveOwnJsonlPath();
-  if (!fp) return undefined; // JSONL not ready yet — don't touch state
-  let st;
-  try { st = await fsp.stat(fp); } catch { return undefined; }
-  let entry = _nameCache.get(fp);
-  if (!entry || entry.mtimeMs !== st.mtimeMs) {
-    let content;
-    try { content = await fsp.readFile(fp, "utf8"); } catch { return undefined; }
-    let localBest = null;
-    for (const line of content.split(/\r?\n/)) {
-      if (!line.includes("/rename")) continue;
-      let obj; try { obj = JSON.parse(line); } catch { continue; }
-      const c = String(obj?.content ?? "");
-      const m = c.match(/<command-name>\/rename<\/command-name>[\s\S]*?<command-args>([^<]*)<\/command-args>/);
-      if (!m) continue;
-      const argName = m[1].trim();
-      if (!argName) continue;
-      const ts = obj.timestamp ? Date.parse(obj.timestamp) : 0;
-      if (!localBest || ts >= localBest.ts) localBest = { name: argName, ts };
-    }
-    entry = { mtimeMs: st.mtimeMs, latest: localBest };
-    _nameCache.set(fp, entry);
-  }
-  // Cap cache size (LRU-ish via Map insertion order). Each proxy typically
-  // only ever caches one path; the cap just guards against drift across rare
-  // path flips.
-  while (_nameCache.size > _NAME_CACHE_CAP) {
-    const oldest = _nameCache.keys().next().value;
-    _nameCache.delete(oldest);
-  }
-  return entry.latest ? entry.latest.name : null;
-}
-
-// Periodic watcher: picks up /rename commands issued mid-session and pushes
-// the new name to the daemon. Runs every 15 s; no-ops when the current name
-// came from `CLAUDE_SESSION_NAME` env or an explicit `set_session_name` call.
+// Periodic watcher: picks up the host's rename equivalent (/rename in Claude)
+// and pushes the new name to the daemon. Runs every 15 s; no-ops when the
+// current name came from an env var or an explicit set_session_name call.
+// Delegates the host-specific scan to the adapter.
 function startNameWatch() {
   const t = setInterval(async () => {
     if (SESSION_NAME_SOURCE === "manual" || SESSION_NAME_SOURCE === "env") return;
-    const d = await discoverSessionName();
+    if (!adapter) return;
+    const d = await adapter.discoverName();
     if (d === undefined) return; // transient I/O error — leave state alone
     if (typeof d === "string" && d !== SESSION_NAME) {
       SESSION_NAME = d;
       SESSION_NAME_SOURCE = "auto";
       httpPost("/session/rename", { sessionId: SESSION_ID, sessionName: d }).catch(() => {});
     } else if (d === null && SESSION_NAME_SOURCE === "auto" && SESSION_NAME) {
-      // Our own JSONL was read successfully and contains no /rename, but we
-      // had auto-set a name previously (e.g. from an earlier buggy version
-      // that cross-contaminated from a sibling session's JSONL). Clear so
-      // the dashboard reflects reality. The === null check (vs. falsy) is
-      // load-bearing — undefined above means I/O error, not empty file.
+      // Our own transcript was read successfully and contains no rename, but
+      // we had auto-set a name previously (e.g. from an earlier buggy
+      // version that cross-contaminated from a sibling session's transcript).
+      // Clear so the dashboard reflects reality. The === null check (vs.
+      // falsy) is load-bearing — undefined above means I/O error, not empty.
       SESSION_NAME = null;
       SESSION_NAME_SOURCE = null;
       httpPost("/session/rename", { sessionId: SESSION_ID, sessionName: null }).catch(() => {});
@@ -194,229 +162,13 @@ function startNameWatch() {
   t.unref();
 }
 
-// -----------------------------------------------------------------------------
-// Activity watch: scan this CC session's JSONL for `tool_use` entries and push
-// the count + latest-tool-use timestamp to the daemon. Captures every CC tool
-// call (Bash, Read, Edit, Grep, MCP tools, …) rather than only this MCP's ones.
-//
-// Heuristic for "our" JSONL: the JSONL in this cwd's project dir whose first
-// entry's timestamp is closest to SESSION_STARTED (within a 30 s window).
-// Each CC launch creates a new JSONL so the alignment is usually ~hundreds of
-// ms. In the edge case of two CC sessions launched in the exact same cwd at
-// the same time, we may attribute one session's activity to the other — a
-// known limitation documented for the user.
-//
-// Reading is incremental (byte offsets) so even a multi-MB JSONL is cheap to
-// follow across many scans. We only parse newly-appended bytes.
-// -----------------------------------------------------------------------------
-let _ownJsonlPath = null;        // resolved on first successful identify
-let _ownJsonlReadBytes = 0;      // byte offset up to which we've parsed
-let _ownJsonlToolCalls = 0;      // running count for this session
-let _ownJsonlLastAt = null;      // epoch ms of the most recent tool_use
-// Tail-state tracking: each JSONL line transitions state deterministically.
-// "running" = last assistant turn ended on a tool_use (stop_reason: "tool_use");
-// "thinking" = last line was user-side (prompt or tool_result), Claude is about
-// to respond; "idle" = last assistant turn ended with end_turn / max_tokens /
-// stop_sequence. Lets the dashboard show "running bash" for long-running tools
-// and "thinking" for text-only responses — strictly better than the old
-// "tool_use within 60s" heuristic.
-let _ownJsonlActivityState = null;   // "running" | "thinking" | "idle" | null
-let _ownJsonlToolName = null;        // last tool_use's name when state === "running"
-let _ownJsonlStateChangedAt = null;  // epoch ms of the line that set the current state
-// Flipped to true after the first successful scan. Used to keep publishing
-// last-known state through transient read errors instead of losing a whole
-// 5s tick (which would also lose the monotonic tool_call bump on that tick).
-let _ownJsonlReady = false;
-
-function ownJsonlSnapshot() {
-  return {
-    count: _ownJsonlToolCalls,
-    lastAt: _ownJsonlLastAt,
-    activityState: _ownJsonlActivityState,
-    toolName: _ownJsonlToolName,
-    stateChangedAt: _ownJsonlStateChangedAt,
-  };
-}
-
-// Pure path resolver — no shared state mutation. Callable from any watcher
-// without perturbing the activity scanner's incremental read state.
-//
-// Heuristic: pick the JSONL in the cwd's project dir whose first-entry
-// timestamp is closest to SESSION_STARTED. If no candidate is within 30 s,
-// fall back to the most-recently-modified JSONL (handles CC auto-restarts
-// where our proxy's SESSION_STARTED is much later than CC's session start).
-// Returns a path string, or null if no viable candidate.
-async function resolveOwnJsonlPath() {
-  const home = process.env.USERPROFILE || process.env.HOME;
-  if (!home) return null;
-  const encoded = SESSION_CWD.replace(/[:\\/_]/g, "-");
-  const dir = path.join(home, ".claude", "projects", encoded);
-  let entries;
-  try { entries = await fsp.readdir(dir); } catch { return null; }
-  const sessionStart = Date.parse(SESSION_STARTED);
-  let best = null;
-  let bestDelta = Infinity;
-  let fallback = null;
-  let fallbackMtime = 0;
-  for (const f of entries) {
-    if (!f.endsWith(".jsonl")) continue;
-    const fp = path.join(dir, f);
-    let st;
-    try { st = await fsp.stat(fp); } catch { continue; }
-    if (st.mtimeMs < sessionStart - 2000) continue;
-    if (st.mtimeMs > fallbackMtime) { fallbackMtime = st.mtimeMs; fallback = fp; }
-    let firstTs = 0;
-    try {
-      const fh = await fsp.open(fp, "r");
-      try {
-        const buf = Buffer.alloc(16384);
-        const { bytesRead } = await fh.read(buf, 0, 16384, 0);
-        const lines = buf.toString("utf8", 0, bytesRead).split("\n");
-        for (const line of lines) {
-          if (!line) continue;
-          try {
-            const obj = JSON.parse(line);
-            if (obj.timestamp) { firstTs = Date.parse(obj.timestamp); break; }
-          } catch { /* keep scanning — may be a truncated final line */ }
-        }
-      } finally { await fh.close(); }
-    } catch { continue; }
-    if (!firstTs) continue;
-    const delta = Math.abs(firstTs - sessionStart);
-    if (delta < bestDelta) { bestDelta = delta; best = fp; }
-  }
-  return (best && bestDelta < 30000) ? best : fallback;
-}
-
-// Activity-scanner wrapper around resolveOwnJsonlPath: maintains the
-// read-position cursor and tail-state vars. Only the activity scanner should
-// call this — other callers (e.g. discoverSessionName) use resolveOwnJsonlPath
-// directly so their polls don't interfere with the scanner's state.
-async function identifyOwnJsonl() {
-  const pick = await resolveOwnJsonlPath();
-  if (!pick) return _ownJsonlPath; // resolver couldn't find a candidate
-  if (pick !== _ownJsonlPath) {
-    _ownJsonlReady = false;
-    // Chosen JSONL changed — reset ALL scan state for the new file so stale
-    // counters or tail-state from the old file don't leak through.
-    _ownJsonlPath = pick;
-    _ownJsonlReadBytes = 0;
-    _ownJsonlToolCalls = 0;
-    _ownJsonlLastAt = null;
-    _ownJsonlActivityState = null;
-    _ownJsonlToolName = null;
-    _ownJsonlStateChangedAt = null;
-  }
-  return _ownJsonlPath;
-}
-
-// Read cap per scan. Multi-MB deltas (e.g. after a laptop sleep) get caught
-// up across subsequent 5s ticks instead of allocating the whole delta in one
-// shot.
-const JSONL_SCAN_CHUNK_BYTES = 8 * 1024 * 1024;
-
-async function scanOwnJsonlActivity() {
-  const fp = await identifyOwnJsonl();
-  if (!fp) return _ownJsonlReady ? ownJsonlSnapshot() : null;
-  let st;
-  try { st = await fsp.stat(fp); } catch {
-    return _ownJsonlReady ? ownJsonlSnapshot() : null;
-  }
-  // File truncation / rewrite detection. If the file shrank below our
-  // accumulated offset, CC either rotated the JSONL or re-opened from scratch
-  // — reset scanner state so the next read re-parses from byte 0.
-  if (st.size < _ownJsonlReadBytes) {
-    _ownJsonlReadBytes = 0;
-    _ownJsonlToolCalls = 0;
-    _ownJsonlLastAt = null;
-    _ownJsonlActivityState = null;
-    _ownJsonlToolName = null;
-    _ownJsonlStateChangedAt = null;
-    _ownJsonlReady = false;
-  }
-  if (_ownJsonlReadBytes >= st.size) {
-    _ownJsonlReady = true;
-    return ownJsonlSnapshot();
-  }
-  try {
-    const fh = await fsp.open(fp, "r");
-    try {
-      const remaining = st.size - _ownJsonlReadBytes;
-      const toRead = Math.min(remaining, JSONL_SCAN_CHUNK_BYTES);
-      const buf = Buffer.alloc(toRead);
-      const { bytesRead } = await fh.read(buf, 0, toRead, _ownJsonlReadBytes);
-      if (bytesRead === 0) {
-        // File shrank between stat and read, or concurrent truncation. Bail;
-        // next scan's truncation branch above will reset state.
-        return ownJsonlSnapshot();
-      }
-      // Only decode the bytes we actually read — avoids stray NULs from the
-      // tail of Buffer.alloc on a short read.
-      const text = buf.toString("utf8", 0, bytesRead);
-      // If we ended mid-line, back off to the last newline so partial lines
-      // are reconsidered on the next scan when more bytes have flushed.
-      const lastNl = text.lastIndexOf("\n");
-      if (lastNl === -1) return ownJsonlSnapshot();
-      _ownJsonlReadBytes += lastNl + 1;
-      for (const line of text.slice(0, lastNl).split("\n")) {
-        if (!line) continue;
-        // Type prefilter — we care about user & assistant lines for tail state.
-        // Metadata lines ({type:"permission-mode"}, {type:"summary"}, etc.)
-        // don't transition activity; skipping them keeps the hot path cheap.
-        const isAssistant = line.includes('"type":"assistant"');
-        const isUser = line.includes('"type":"user"');
-        if (!isAssistant && !isUser) continue;
-        let obj; try { obj = JSON.parse(line); } catch { continue; }
-        const ts = obj.timestamp ? Date.parse(obj.timestamp) : null;
-        if (obj.type === "assistant") {
-          const content = obj.message?.content;
-          if (!Array.isArray(content)) continue;
-          // Count tool_use blocks (legacy counter still useful for dashboards).
-          let calls = 0;
-          let lastToolUseName = null;
-          for (const c of content) {
-            if (c && c.type === "tool_use") {
-              calls++;
-              if (c.name) lastToolUseName = c.name;
-            }
-          }
-          if (calls > 0) {
-            _ownJsonlToolCalls += calls;
-            if (ts) _ownJsonlLastAt = ts;
-          }
-          // Tail state: stop_reason authoritative if present; otherwise
-          // infer from whether the last content block is a tool_use.
-          const sr = obj.message?.stop_reason;
-          const endedOnToolUse =
-            sr === "tool_use" ||
-            (!sr && content.length > 0 && content[content.length - 1]?.type === "tool_use");
-          if (endedOnToolUse) {
-            _ownJsonlActivityState = "running";
-            _ownJsonlToolName = lastToolUseName;
-          } else {
-            _ownJsonlActivityState = "idle";
-            _ownJsonlToolName = null;
-          }
-          _ownJsonlStateChangedAt = ts;
-        } else if (obj.type === "user") {
-          // A user line means Claude is either about to respond to a fresh
-          // prompt or processing a tool_result. Either way, "thinking".
-          _ownJsonlActivityState = "thinking";
-          _ownJsonlToolName = null;
-          _ownJsonlStateChangedAt = ts;
-        }
-      }
-    } finally { await fh.close(); }
-  } catch {
-    return _ownJsonlReady ? ownJsonlSnapshot() : null;
-  }
-  _ownJsonlReady = true;
-  return ownJsonlSnapshot();
-}
-
+// Activity watch: every 5 s, ask the host adapter for a snapshot and push
+// it to the daemon. The adapter owns host-specific transcript semantics
+// (JSONL tailing for Claude, rewritten-JSON re-read for Gemini, ...).
 function startActivityWatch() {
   const t = setInterval(async () => {
-    const a = await scanOwnJsonlActivity();
+    if (!adapter) return;
+    const a = await adapter.scanActivity();
     if (!a) return;
     httpPost("/session/activity", {
       sessionId: SESSION_ID,
@@ -435,9 +187,10 @@ let _lastCapWarnAt = 0;
 async function registerSession() {
   try {
     await ensureDaemon();
-    // Env var wins; otherwise scan CC's session logs for the latest /rename.
-    if (!SESSION_NAME) {
-      const d = await discoverSessionName();
+    await adapterReady;
+    // Env var wins; otherwise ask the host adapter to scrape an initial name.
+    if (!SESSION_NAME && adapter) {
+      const d = await adapter.discoverName();
       if (d) { SESSION_NAME = d; SESSION_NAME_SOURCE = "auto"; }
     }
     const status = await httpPost("/session/register", {
@@ -446,6 +199,7 @@ async function registerSession() {
       cwd: SESSION_CWD,
       startedAt: SESSION_STARTED,
       sessionName: SESSION_NAME,
+      host: SESSION_HOST,
     });
     if (status === 429) {
       // Daemon's session cap is full. Without this log the session would be
