@@ -368,6 +368,7 @@ function listSessions() {
     cwd: s.cwd,
     sessionName: s.sessionName ?? null,
     host: s.host ?? "claude",
+    gitBranch: s.gitBranch ?? null,
     clientInfo: s.clientInfo ?? null,
     startedAt: s.startedAt,
     lastSeen: s.lastSeen,
@@ -537,7 +538,7 @@ const server = http.createServer(async (req, res) => {
       const body = parseBody(await readBody(req), res);
       if (body === null) return;
       if (!requireSessionId(body, res)) return;
-      const { sessionId, pid, cwd, startedAt: sStarted, clientInfo, sessionName, host } = body;
+      const { sessionId, pid, cwd, startedAt: sStarted, clientInfo, sessionName, host, gitBranch } = body;
       // Cap total registered sessions so a local process can't balloon the
       // Map via register-with-random-UUID in a tight loop. Re-registering a
       // known id is always allowed (it's an idempotent upsert).
@@ -560,6 +561,9 @@ const server = http.createServer(async (req, res) => {
         // Preserved across re-registrations so a transient /register from an older
         // client that omits the field can't wipe the previously-detected host.
         host: host ?? prev?.host ?? "claude",
+        // Current git branch / short-sha / null. Proxies from older clients
+        // don't send it — fall back to prev so a re-register doesn't wipe it.
+        gitBranch: gitBranch !== undefined ? gitBranch : (prev?.gitBranch ?? null),
         startedAt: sStarted ?? new Date().toISOString(),
         lastSeen: Date.now(),
         toolCalls: prev?.toolCalls ?? 0,
@@ -594,7 +598,13 @@ const server = http.createServer(async (req, res) => {
       if (body === null) return;
       if (!requireSessionId(body, res)) return;
       const s = sessions.get(body.sessionId);
-      if (s) s.lastSeen = Date.now();
+      if (s) {
+        s.lastSeen = Date.now();
+        // Proxy sends gitBranch on every heartbeat; missing/undefined means
+        // a pre-PR proxy we keep as-is. null from a current proxy means
+        // "not in a git repo" — we accept that overwrite.
+        if (body.gitBranch !== undefined) s.gitBranch = body.gitBranch;
+      }
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify({ ok: true, known: !!s }));
       return;
