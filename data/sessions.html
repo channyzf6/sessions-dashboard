@@ -249,7 +249,11 @@
     font-size: .95rem;
     opacity: 1;
     vertical-align: -1px;
-    margin: 0 .4rem;
+    /* Asymmetric: wider gap before the glyph (detaches it from the cwd)
+       and a tighter gap after so ⎇ visually belongs to the branch name
+       that follows it. */
+    margin-left: .5rem;
+    margin-right: .18rem;
   }
 
   /* Status pill: the card's only color accent. flex-shrink:0 keeps it
