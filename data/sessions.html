@@ -189,60 +189,67 @@
     background: rgba(255,255,255,.06); padding: .1rem .4rem; border-radius: 4px;
     color: var(--text);
   }
-  /* Single-row card. Left-edge 3px stripe encodes host (Claude: Anthropic
-     terracotta; Gemini: teal). Pid + uptime + session id live in the title
-     tooltip. No drag handle — the whole card is cursor:grab anyway. */
+  /* Two-row card. Card itself is a flex-row so the status pill can sit
+     vertically centered across both inner rows. Host is exposed only via
+     the card tooltip — no color stripe (the group section's own accent
+     already owns the left-edge color channel; a per-card stripe would
+     stack against it and turn the dashboard chromatic). */
   .session {
-    position: relative;
-    background: rgba(0,0,0,.22); border: 1px solid var(--border);
-    border-left: 3px solid #d97757;   /* default: Claude / unknown — terracotta */
+    background: rgba(0,0,0,.22);
+    border: 1px solid var(--border);
     border-radius: 8px;
-    padding: .7rem .95rem .7rem 1rem;
+    padding: .85rem 1.05rem;
     font-family: ui-sans-serif, system-ui, sans-serif; font-size: .85rem;
-    display: flex; flex-direction: column; gap: .4rem;
+    display: flex; flex-direction: row; align-items: center; gap: .9rem;
     transition: border-color .25s ease, transform .1s ease, opacity .15s ease, background .15s ease;
     cursor: grab;
   }
-  .session[data-host="gemini"] { border-left-color: #7fd4c5; }
   .session:active { cursor: grabbing; }
   .session.dragging { opacity: .45; }
   .session:hover {
     transform: translateY(-1px);
     background: rgba(255,255,255,.025);
-    border-top-color: rgba(96,165,250,.4);
-    border-right-color: rgba(96,165,250,.4);
-    border-bottom-color: rgba(96,165,250,.4);
+    border-color: rgba(96,165,250,.4);
   }
-  /* Fresh / idle borders target the three non-left borders only, so the
-     host stripe is never masked by a green / amber outline on hover or age. */
-  .session.fresh { border-top-color: rgba(74,222,128,.5); border-right-color: rgba(74,222,128,.5); border-bottom-color: rgba(74,222,128,.5); }
-  .session.idle  { border-top-color: rgba(245,193,58,.4); border-right-color: rgba(245,193,58,.4); border-bottom-color: rgba(245,193,58,.4); opacity: .88; }
-  .session .row { display: flex; align-items: center; gap: .9rem; min-width: 0; }
-  /* Primary identifier cell — user's session name OR cwd-basename fallback.
-     Sans by default; warm gold when it's an explicit name. */
-  .session .ident {
-    color: var(--text); font-weight: 600;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-    flex: 0 1 auto; min-width: 0; max-width: 18em;
-  }
-  .session .ident.named { color: var(--gold); }
-  /* Locator: dim mono, e.g. "repos_llm/main" — answers "where am I working"
-     in one token. No bullet separators; whitespace is enough. Truncates
-     rather than wrapping when space is tight. Detached HEAD state flips to
-     orange italic so a non-branch state reads distinct. */
-  .session .locator {
-    color: var(--dim); font-family: var(--mono); font-size: .78rem;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  .session.fresh { border-color: rgba(74,222,128,.5); }
+  .session.idle  { border-color: rgba(245,193,58,.4); opacity: .9; }
+
+  /* .body stacks ident + optional locator vertically. Takes all leftover
+     horizontal space so the locator has room for long cwd/branch values. */
+  .session .body {
     flex: 1 1 auto; min-width: 0;
+    display: flex; flex-direction: column; gap: .35rem;
+  }
+
+  /* Primary identifier. Named sessions use heavier weight + full-text
+     color; unnamed cwd-fallback uses dim + medium weight. No hue
+     difference — saves a color, keeps "named vs not" as weight alone. */
+  .session .ident {
+    color: var(--dim); font-weight: 500;
+    font-size: .95rem; letter-spacing: -.005em;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    min-width: 0;
+  }
+  .session .ident.named { color: var(--text); font-weight: 600; }
+
+  /* Locator row: dim mono, full width of .body. No flex contention with
+     the status pill so even long "<cwd>/<branch>" values breathe.
+     Detached HEAD flips to orange italic — a legitimate state warning,
+     not decoration. */
+  .session .locator {
+    color: var(--dim); font-family: var(--mono); font-size: .76rem;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    opacity: .9; letter-spacing: .01em;
   }
   .session .locator.detached { color: #fb923c; font-style: italic; }
-  /* Status pill: consistent sentence-case voice for both working and idle
-     states so they read as variants of the same concept. */
+
+  /* Status pill: the card's only color accent. flex-shrink:0 keeps it
+     whole at the right edge; align-items:center on .session vertically
+     centers it between row 1 and row 2. */
   .session .status {
-    margin-left: auto;
-    font-size: .72rem; font-weight: 600;
-    padding: .15rem .6rem; border-radius: 999px; white-space: nowrap;
     flex-shrink: 0;
+    font-size: .72rem; font-weight: 600;
+    padding: .2rem .65rem; border-radius: 999px; white-space: nowrap;
     display: inline-flex; align-items: center; gap: .4rem;
     font-family: ui-sans-serif, system-ui, sans-serif;
   }
@@ -682,10 +689,12 @@
     li.dataset.sessionName = s.sessionName || "";
     li.dataset.host = s.host || "claude";
 
-    // Single-row layout: [ident] [locator] ........ [status-pill]
-    // Host encoded by the card's left-edge stripe (CSS data-host).
-    // pid / uptime / full cwd / session id all live in the card's title.
-    const row = document.createElement("div"); row.className = "row";
+    // Two-row card. .body stacks ident (top) + locator (below). Status
+    // pill sits as a sibling and is vertically centered between the two
+    // rows via .session's align-items:center. Host is tooltip-only — no
+    // visible color stripe, so the group section's color stripe can be
+    // the only left-edge signal in the view.
+    const body = document.createElement("div"); body.className = "body";
 
     const ident = document.createElement("span"); ident.className = "ident";
     if (s.sessionName) {
@@ -694,7 +703,7 @@
     } else {
       ident.textContent = basename(s.cwd);
     }
-    row.append(ident);
+    body.append(ident);
 
     const loc = buildLocator(s);
     if (loc) {
@@ -702,12 +711,11 @@
       if (loc.detached) el.classList.add("detached");
       el.textContent = loc.text;
       el.title = loc.title;
-      row.append(el);
+      body.append(el);
     }
 
-    row.append(buildStatusPill(s));
-    li.append(row);
-
+    li.append(body);
+    li.append(buildStatusPill(s));
     li.title = buildCardTooltip(s);
 
     li.addEventListener("mousedown", () => { isMouseDownOnCard = true; });
@@ -930,22 +938,18 @@
     const oldStatus = card.querySelector(".status");
     if (oldStatus) oldStatus.replaceWith(buildStatusPill(s));
 
-    // Locator: create / update / remove in place. Kept outside the
-    // structuralSignature fast-path so a cross-session branch change
-    // doesn't rebuild any card and break a concurrent drag.
-    const row = card.querySelector(".row");
-    if (row) {
+    // Locator lives inside .body now (not alongside the status pill).
+    // Kept outside the structuralSignature fast-path so a cross-session
+    // branch change doesn't rebuild any card and break a concurrent drag.
+    const body = card.querySelector(".body");
+    if (body) {
       const loc = buildLocator(s);
-      let locEl = row.querySelector(".locator");
+      let locEl = body.querySelector(":scope > .locator");
       if (loc) {
         if (!locEl) {
           locEl = document.createElement("span");
           locEl.className = "locator";
-          // Insert before the status pill (which sits last in the row via
-          // margin-left:auto). querySelector on .status finds it.
-          const pillEl = row.querySelector(".status");
-          if (pillEl) row.insertBefore(locEl, pillEl);
-          else row.appendChild(locEl);
+          body.appendChild(locEl); // always last child of .body
         }
         locEl.textContent = loc.text;
         locEl.title = loc.title;
