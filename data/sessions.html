@@ -247,6 +247,16 @@
   }
   .session .meta .sep { opacity: .5; flex-shrink: 0; }
   .session .meta .age { flex-shrink: 0; font-family: var(--mono); opacity: .85; }
+  /* Git branch cell: same dim tone as cwd, mono. Detached HEAD gets orange
+     italic so a non-branch state reads as distinct without miscoding as
+     warning. Truncates with ellipsis at a generous ceiling. */
+  .session .meta .branch {
+    color: var(--dim);
+    font-family: var(--mono);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    flex: 0 1 auto; min-width: 0; max-width: 20em;
+  }
+  .session .meta .branch.detached { color: #fb923c; font-style: italic; }
   /* Drag-handle grip: surfaces that the card is draggable without requiring
      the user to try it first. Faint at rest, brightens as the card is
      hovered so focus stays on the card content until the user reaches for
@@ -415,6 +425,19 @@
     if (h === "gemini") return "Gemini CLI";
     if (h === "claude") return "Claude Code";
     return "unknown host";
+  }
+
+  // Format a gitBranch payload ({branch, sha, detached} | null) for display.
+  // Returns null if the session isn't in a git repo (caller omits the cell).
+  function formatGitBranch(gb) {
+    if (!gb || typeof gb !== "object") return null;
+    if (gb.detached && gb.sha) {
+      return { text: "(" + gb.sha + ")", title: "detached at " + gb.sha, detached: true };
+    }
+    if (gb.branch) {
+      return { text: gb.branch, title: "refs/heads/" + gb.branch, detached: false };
+    }
+    return null;
   }
 
   // Context-window sizes for known Claude models. The proxy reports model as
@@ -675,9 +698,9 @@
     }
     row1.append(buildStatusPill(s));
 
-    // Bottom meta row: cwd basename + uptime, bullet-separated. Merges what
-    // were previously three dim-gray rows (cwd / session id / uptime) into a
-    // single glanceable line. Session id moves to the card tooltip only.
+    // Bottom meta row: cwd basename + git branch + uptime, bullet-separated.
+    // Merges what were previously three dim-gray rows (cwd / session id /
+    // uptime) into a single glanceable line; session id moves to card tooltip.
     const meta = document.createElement("div"); meta.className = "meta";
     // We only show cwd here if a sessionName was displayed above; otherwise
     // the top row's cwd-strong already carries it.
@@ -688,6 +711,17 @@
       meta.append(cwdCell);
       const sep = document.createElement("span"); sep.className = "sep"; sep.textContent = "·";
       meta.append(sep);
+    }
+    // Git branch cell (nullable — omitted when session cwd isn't in a repo).
+    const gb = formatGitBranch(s.gitBranch);
+    if (gb) {
+      const br = document.createElement("span");
+      br.className = "branch" + (gb.detached ? " detached" : "");
+      br.textContent = gb.text;
+      br.title = gb.title;
+      meta.append(br);
+      const brSep = document.createElement("span"); brSep.className = "sep branch-sep"; brSep.textContent = "·";
+      meta.append(brSep);
     }
     const age = document.createElement("span"); age.className = "age";
     age.textContent = "up " + fmtAge(s.ageMs);
@@ -927,6 +961,34 @@
     // smoothly without rebuilding the whole card.
     const oldStatus = card.querySelector(".status");
     if (oldStatus) oldStatus.replaceWith(buildStatusPill(s));
+    // Branch cell: create / update / remove in place. Doing this here
+    // (instead of via structuralSignature → full rebuild) keeps drag
+    // stability when another session's branch changes mid-drag.
+    const meta = card.querySelector(".meta");
+    if (meta) {
+      const gb = formatGitBranch(s.gitBranch);
+      let branchEl = meta.querySelector(".branch");
+      let branchSep = meta.querySelector(".branch-sep");
+      if (gb) {
+        if (!branchEl) {
+          branchEl = document.createElement("span");
+          branchEl.className = "branch";
+          branchSep = document.createElement("span");
+          branchSep.className = "sep branch-sep";
+          branchSep.textContent = "·";
+          // Insert before the age cell so ordering stays: cwd · branch · up N.
+          const ageNode = meta.querySelector(".age");
+          if (ageNode) { meta.insertBefore(branchEl, ageNode); meta.insertBefore(branchSep, ageNode); }
+          else { meta.appendChild(branchEl); meta.appendChild(branchSep); }
+        }
+        branchEl.textContent = gb.text;
+        branchEl.title = gb.title;
+        branchEl.classList.toggle("detached", !!gb.detached);
+      } else if (branchEl) {
+        branchEl.remove();
+        if (branchSep) branchSep.remove();
+      }
+    }
   }
 
   function render() {

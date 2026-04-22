@@ -15,6 +15,7 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { detectHost, makeAdapter } from "./lib/host/registry.mjs";
+import { resolveGitDir, readHead } from "./lib/git.mjs";
 
 const PORT = parseInt(process.env.SESSIONS_DASHBOARD_PORT || "8787", 10);
 // By default the daemon is dormant until a tool is invoked. Set
@@ -56,6 +57,13 @@ const adapterReady = (async () => {
     pid: process.pid,
   });
 })();
+
+// Git branch display — resolve the git directory once at register, then
+// read HEAD on every heartbeat to pick up `git switch` / worktree changes
+// within 5s. cwd is captured once at proxy startup and never changes, so
+// the resolved gitDir is stable for the session's lifetime.
+let SESSION_GIT_DIR = null;   // populated at first register; null if cwd not in a repo
+let SESSION_GIT_BRANCH = null; // {branch, sha, detached} | null
 
 function ping(timeoutMs = 300) {
   return new Promise((resolve) => {
@@ -193,6 +201,12 @@ async function registerSession() {
       const d = await adapter.discoverName();
       if (d) { SESSION_NAME = d; SESSION_NAME_SOURCE = "auto"; }
     }
+    // Resolve git-dir once (lazy cache). cwd never changes, so this is
+    // stable; heartbeat only re-reads HEAD after this point.
+    if (SESSION_GIT_DIR === null) {
+      SESSION_GIT_DIR = await resolveGitDir(SESSION_CWD);
+    }
+    SESSION_GIT_BRANCH = await readHead(SESSION_GIT_DIR);
     const status = await httpPost("/session/register", {
       sessionId: SESSION_ID,
       pid: process.pid,
@@ -200,6 +214,7 @@ async function registerSession() {
       startedAt: SESSION_STARTED,
       sessionName: SESSION_NAME,
       host: SESSION_HOST,
+      gitBranch: SESSION_GIT_BRANCH,
     });
     if (status === 429) {
       // Daemon's session cap is full. Without this log the session would be
@@ -241,7 +256,13 @@ function httpPostJson(path, body, { timeoutMs = 3000 } = {}) {
 function startHeartbeat() {
   const t = setInterval(async () => {
     try {
-      const res = await httpPostJson("/session/heartbeat", { sessionId: SESSION_ID });
+      // Pick up branch changes (`git switch`, `git worktree` adds, etc.).
+      // gitDir was resolved once at register; HEAD is a small file read.
+      SESSION_GIT_BRANCH = await readHead(SESSION_GIT_DIR);
+      const res = await httpPostJson("/session/heartbeat", {
+        sessionId: SESSION_ID,
+        gitBranch: SESSION_GIT_BRANCH,
+      });
       if (res && res.known === false) {
         // Daemon forgot us (probably restarted). Re-register so this session
         // doesn't silently disappear from the sessions dashboard.
