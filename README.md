@@ -116,7 +116,7 @@ Or edit `~/.gemini/settings.json`:
 Register via the CLI:
 
 ```bash
-codex mcp add sessions-dashboard --scope user -- node "<absolute path>/index.mjs"
+codex mcp add sessions-dashboard -- node "<absolute path>/index.mjs"
 ```
 
 Or edit `~/.codex/config.toml`:

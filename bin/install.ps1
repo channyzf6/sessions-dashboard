@@ -19,6 +19,12 @@ foreach ($cli in @('claude', 'gemini', 'codex')) {
     $found = Get-Command $cli -ErrorAction SilentlyContinue
     if (-not $found) { continue }
     Write-Host "  - $cli detected"
+    # CLI-specific flag handling. Claude and Gemini accept `--scope user`
+    # to mean "register globally for this user, not per-project." Codex
+    # doesn't accept that flag — its mcp add is global by default. Passing
+    # --scope to Codex errors out with "unexpected argument '--scope'."
+    if ($cli -eq 'codex') { $scopeArgs = @() }
+    else                  { $scopeArgs = @('--scope', 'user') }
     # Idempotent: remove any prior registration so re-running the installer
     # is a no-op update. On PowerShell 7.4+ with $ErrorActionPreference='Stop'
     # and the default $PSNativeCommandUseErrorActionPreference=$true, a
@@ -26,12 +32,12 @@ foreach ($cli in @('claude', 'gemini', 'codex')) {
     # when there's nothing to remove) throws a terminating
     # NativeCommandExitException — catch and discard.
     try {
-        & $cli mcp remove sessions-dashboard --scope user 2>$null | Out-Null
+        & $cli mcp remove sessions-dashboard @scopeArgs 2>$null | Out-Null
     } catch {}
     # Register. Tolerate failure on a single CLI — keep going so a broken
     # Codex install on Windows doesn't block Claude/Gemini for the same user.
     try {
-        & $cli mcp add sessions-dashboard --scope user -- node "$index"
+        & $cli mcp add sessions-dashboard @scopeArgs -- node "$index"
         $registered++
     } catch {
         Write-Host "    (registration with $cli failed; continuing)"

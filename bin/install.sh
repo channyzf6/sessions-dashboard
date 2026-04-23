@@ -27,13 +27,20 @@ for cli in claude gemini codex; do
     continue
   fi
   echo "  - $cli detected"
+  # CLI-specific flag handling. Claude and Gemini take `--scope user` to
+  # mean "register globally for this user, not per-project." Codex doesn't
+  # accept that flag — its mcp add is global by default. Trying to pass
+  # --scope to Codex errors out with "unexpected argument '--scope'."
+  case "$cli" in
+    claude|gemini) scope_args=(--scope user) ;;
+    *)             scope_args=() ;;
+  esac
   # Idempotent: remove any prior registration so re-running the installer
-  # (e.g. after moving the clone) is a no-op update rather than a
-  # duplicate-registration hard failure.
-  "$cli" mcp remove sessions-dashboard --scope user >/dev/null 2>&1 || true
+  # is a no-op update rather than a duplicate-registration failure.
+  "$cli" mcp remove sessions-dashboard "${scope_args[@]}" >/dev/null 2>&1 || true
   # Register. Tolerate failure on a single CLI — keep going so a broken
   # Codex install doesn't block Claude/Gemini for the same user.
-  if "$cli" mcp add sessions-dashboard --scope user -- node "$index"; then
+  if "$cli" mcp add sessions-dashboard "${scope_args[@]}" -- node "$index"; then
     registered=$((registered + 1))
   else
     echo "    (registration with $cli failed; continuing)"
