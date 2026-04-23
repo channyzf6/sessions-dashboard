@@ -63,7 +63,12 @@ if ($registered -eq 0) {
     Write-Host "Install one of: claude, gemini, codex — then re-run this installer."
     Write-Host "Or register manually:"
     Write-Host ""
-    Write-Host "  <cli> mcp add sessions-dashboard --scope user -- node `"$index`""
+    # Single-quoted literal + -f interpolation: PowerShell's parser
+    # treats `<` as a reserved redirection operator inside double-quoted
+    # strings (errors with "The '<' operator is reserved for future use"
+    # at parse time, before the string is even evaluated). Single quotes
+    # bypass the redirection lexer entirely.
+    Write-Host ('  <cli> mcp add sessions-dashboard --scope user -- node "{0}"' -f $index)
     Write-Host ""
     exit 1
 }
