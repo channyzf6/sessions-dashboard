@@ -32,16 +32,24 @@ for cli in claude gemini codex; do
   # accept that flag — its mcp add is global by default. Trying to pass
   # --scope to Codex errors out with "unexpected argument '--scope'."
   #
-  # env_args: pin the host explicitly for Codex. Without this, the proxy's
-  # cold-start dir-probe can misroute the session to ClaudeAdapter when
-  # Claude has any prior transcript in the same cwd (Codex hasn't yet
-  # flushed session_meta when detection runs), leaving the activity pill
-  # and /rename silently inert. Claude/Gemini have per-cwd transcript dirs
-  # so they don't suffer the same race; we leave them on auto-detect to
-  # keep the surface minimal.
+  # env_args: pin the host explicitly for every CLI. Without this, the
+  # proxy's cold-start dir-probe in registry.mjs picks "the host with the
+  # most-recent transcript mtime in this cwd" — which gets the wrong
+  # answer in any mixed-host scenario:
+  #   - Codex hasn't flushed session_meta when detection runs.
+  #   - Gemini's chat file isn't created until the first user message.
+  #   - Claude is the default fallback, but only wins when NO other host
+  #     has any transcript in the cwd; once Gemini/Codex have ever been
+  #     used here, Claude's fresh sessions can be mis-routed to whichever
+  #     of them was touched most recently.
+  # Pinning each CLI's registration to its own SESSIONS_DASHBOARD_HOST
+  # skips the probe entirely and makes detection deterministic. The
+  # dir-probe remains as the fallback for manual-install users who edit
+  # settings.json directly without running this script.
   case "$cli" in
-    claude|gemini) scope_args=(--scope user); env_args=() ;;
-    codex)         scope_args=();              env_args=(--env "SESSIONS_DASHBOARD_HOST=codex") ;;
+    claude) scope_args=(--scope user); env_args=(--env "SESSIONS_DASHBOARD_HOST=claude") ;;
+    gemini) scope_args=(--scope user); env_args=(--env "SESSIONS_DASHBOARD_HOST=gemini") ;;
+    codex)  scope_args=();              env_args=(--env "SESSIONS_DASHBOARD_HOST=codex") ;;
   esac
   # Idempotent: remove any prior registration so re-running the installer
   # is a no-op update rather than a duplicate-registration failure.
