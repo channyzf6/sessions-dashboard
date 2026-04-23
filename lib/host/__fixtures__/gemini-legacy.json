@@ -1,0 +1,13 @@
+{
+  "sessionId": "537ac3af-4f37-4f54-9711-bb4b2468d6c8",
+  "projectHash": "560e99986dced0026510009353f499039e6c8e5348b747d298848aef378095b4",
+  "startTime": "2026-04-22T04:13:55.394Z",
+  "lastUpdated": "2026-04-22T04:14:21.274Z",
+  "messages": [
+    { "id": "m1", "type": "user", "timestamp": "2026-04-22T04:14:00.000Z", "content": "hi" },
+    { "id": "m2", "type": "gemini", "timestamp": "2026-04-22T04:14:10.000Z", "content": "hello",
+      "toolCalls": [
+        { "name": "mcp_sessions-dashboard_open_dashboard", "timestamp": "2026-04-22T04:14:05.000Z", "status": "success" }
+      ] }
+  ]
+}
