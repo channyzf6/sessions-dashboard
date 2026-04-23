@@ -1,0 +1,4 @@
+{"sessionId":"abc","projectHash":"hash","startTime":"2026-04-23T17:00:00Z","lastUpdated":"2026-04-23T17:00:00Z","kind":"main","directories":[]}
+{"id":"m1","timestamp":"2026-04-23T17:00:01Z","type":"user","content":"hi"}
+{"id":"m2","timestamp":"2026-04-23T17:00:02Z","type":"gemini","content":"hello","model":"gemini-pro","toolCalls":[{"name":"mcp_sessions-dashboard_open_dashboard","timestamp":"2026-04-23T17:00:02Z","status":"success"}]}
+{"$set":{"lastUpdated":"2026-04-23T17:00:03Z"}}
