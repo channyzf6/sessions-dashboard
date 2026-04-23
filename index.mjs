@@ -172,7 +172,7 @@ function startNameWatch() {
 
 // Activity watch: every 5 s, ask the host adapter for a snapshot and push
 // it to the daemon. The adapter owns host-specific transcript semantics
-// (JSONL tailing for Claude, rewritten-JSON re-read for Gemini, ...).
+// (JSONL tailing for Claude/Codex, JSON or JSONL re-read for Gemini).
 function startActivityWatch() {
   const t = setInterval(async () => {
     if (!adapter) return;
