@@ -24,17 +24,22 @@ foreach ($cli in @('claude', 'gemini', 'codex')) {
     # doesn't accept that flag -- its mcp add is global by default. Passing
     # --scope to Codex errors out with "unexpected argument '--scope'."
     #
-    # envArgs: pin the host explicitly for non-Claude CLIs. Without this,
-    # the proxy's cold-start dir-probe can misroute the session to
-    # ClaudeAdapter when Claude has any prior transcript in the same cwd
-    # -- Codex hasn't yet flushed session_meta when detection runs, and
-    # Gemini's chat file isn't created until the first user message, so
-    # both lose the most-recent-mtime tie-break to a freshly-touched
-    # Claude jsonl. The result is a silently-inert activity pill and
-    # wrong host label. Pinning skips the race entirely. Claude doesn't
-    # need pinning since it's the default fallback.
+    # envArgs: pin the host explicitly for every CLI. Without this, the
+    # proxy's cold-start dir-probe in registry.mjs picks "the host with
+    # the most-recent transcript mtime in this cwd" -- which gets the
+    # wrong answer in any mixed-host scenario:
+    #   - Codex hasn't flushed session_meta when detection runs.
+    #   - Gemini's chat file isn't created until the first user message.
+    #   - Claude is the default fallback, but only wins when NO other
+    #     host has any transcript in the cwd; once Gemini/Codex have
+    #     ever been used here, Claude's fresh sessions can be mis-routed
+    #     to whichever of them was touched most recently.
+    # Pinning each CLI's registration to its own SESSIONS_DASHBOARD_HOST
+    # skips the probe entirely and makes detection deterministic. The
+    # dir-probe remains as the fallback for manual-install users who
+    # edit settings.json directly without running this script.
     switch ($cli) {
-        'claude' { $scopeArgs = @('--scope', 'user'); $envArgs = @() }
+        'claude' { $scopeArgs = @('--scope', 'user'); $envArgs = @('--env', 'SESSIONS_DASHBOARD_HOST=claude') }
         'gemini' { $scopeArgs = @('--scope', 'user'); $envArgs = @('--env', 'SESSIONS_DASHBOARD_HOST=gemini') }
         'codex'  { $scopeArgs = @();                    $envArgs = @('--env', 'SESSIONS_DASHBOARD_HOST=codex') }
     }
