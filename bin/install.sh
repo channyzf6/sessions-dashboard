@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # One-shot installer for the sessions-dashboard MCP extension.
-# Installs deps, registers with Claude Code using the absolute path of this
-# clone, and prints a verify step.
+# Detects which supported CLIs are on PATH (Claude Code, Gemini CLI,
+# Codex CLI) and registers sessions-dashboard with each one found.
+# Errors only if zero supported CLIs are present.
 set -eu
 
 here="$(cd "$(dirname "$0")/.." && pwd)"
@@ -19,24 +20,43 @@ echo "      First run downloads Chromium via Playwright (~150 MB) — this can t
 (cd "$here" && npm install)
 
 echo ""
-echo "[2/3] registering sessions-dashboard with Claude Code"
-if ! command -v claude >/dev/null 2>&1; then
-  echo "  'claude' CLI not on PATH."
-  echo "  Run this yourself after installing Claude Code:"
+echo "[2/3] registering sessions-dashboard with detected CLIs"
+registered=0
+for cli in claude gemini codex; do
+  if ! command -v "$cli" >/dev/null 2>&1; then
+    continue
+  fi
+  echo "  - $cli detected"
+  # Idempotent: remove any prior registration so re-running the installer
+  # (e.g. after moving the clone) is a no-op update rather than a
+  # duplicate-registration hard failure.
+  "$cli" mcp remove sessions-dashboard --scope user >/dev/null 2>&1 || true
+  # Register. Tolerate failure on a single CLI — keep going so a broken
+  # Codex install doesn't block Claude/Gemini for the same user.
+  if "$cli" mcp add sessions-dashboard --scope user -- node "$index"; then
+    registered=$((registered + 1))
+  else
+    echo "    (registration with $cli failed; continuing)"
+  fi
+done
+
+if [ "$registered" -eq 0 ]; then
   echo ""
-  echo "    claude mcp add sessions-dashboard --scope user -- node \"$index\""
+  echo "ERROR: no supported CLI found on PATH."
+  echo "Install one of: claude, gemini, codex — then re-run this installer."
+  echo "Or register manually:"
+  echo ""
+  echo "  <cli> mcp add sessions-dashboard --scope user -- node \"$index\""
   echo ""
   exit 1
 fi
-# Remove first so re-running the installer (e.g. after moving the clone) is a
-# no-op update rather than a hard failure from duplicate registration.
-claude mcp remove sessions-dashboard --scope user >/dev/null 2>&1 || true
-claude mcp add sessions-dashboard --scope user -- node "$index"
 
 echo ""
-echo "[3/3] done. Restart Claude Code, then ask Claude:"
+echo "[3/3] done — registered with $registered CLI(s)."
+echo "Restart your CLI(s), then ask one of them:"
 echo ""
 echo "    \"Open the sessions dashboard\""
 echo ""
-echo "  Claude should invoke mcp__sessions-dashboard__open_dashboard and a live"
-echo "  browser window should appear showing every connected CC session."
+echo "  The CLI invokes mcp__sessions-dashboard__open_dashboard and a live"
+echo "  browser window appears showing every connected session across all"
+echo "  registered CLIs."

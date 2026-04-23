@@ -52,11 +52,11 @@ cd sessions-dashboard
 bin\install.bat
 ```
 
-The script registers the MCP server with Claude Code as `sessions-dashboard`. Restart Claude Code, then in any session ask:
+The script auto-detects which supported CLIs are on your PATH (Claude Code, Gemini CLI, Codex CLI) and registers the MCP server with each one. So a user with only Gemini gets Gemini-registered, a user with all three gets all three registered, and a user with none gets a clear error pointing them at the manual flow. Restart your CLI(s), then in any session ask:
 
 > *"Open the sessions dashboard"*
 
-Claude invokes `mcp__sessions-dashboard__open_dashboard` and a live window appears.
+Your CLI invokes `mcp__sessions-dashboard__open_dashboard` and a live window appears showing every connected session across all registered CLIs.
 
 ### Manual install
 
