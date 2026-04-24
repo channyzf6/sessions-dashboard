@@ -12,9 +12,9 @@
 npx -y sessions-dashboard install
 ```
 
-Requires Node ≥18 on PATH (already true if you're running Claude Code, Gemini CLI, or Codex CLI). The installer auto-detects which of the three CLIs are on your PATH and registers `sessions-dashboard` with each. First run pre-fetches Playwright's Chromium (~150 MB) so the first dashboard open is instant.
+Requires Node ≥18 on PATH. The installer auto-detects which of the three CLIs are on your PATH and registers `sessions-dashboard` with each. First run pre-fetches Playwright's Chromium (~150 MB).
 
-After install, restart your CLI(s) and ask any session: *"Open the sessions dashboard."*
+After install, restart your CLI(s) and ask any session: *"Open the sessions dashboard"*
 
 To remove the MCP registrations later: `npx -y sessions-dashboard uninstall`.
 
@@ -27,9 +27,9 @@ For installing from source (contributors), per-CLI manual config, and platform-s
 If you run more than one CLI agent at a time, you quickly lose track:
 
 - Which session is working on what repo?
+- Which of my dozen terminal tabs is the session I need?
 - Is session 3 actively working right now, or idle waiting for you?
 - What tool is that long-running session stuck on?
-- Which of my dozen terminal tabs is the session I need?
 - How do I group related sessions (e.g. frontend + backend workers) visually?
 
 `sessions-dashboard` gives you a live, at-a-glance view:
@@ -38,7 +38,7 @@ If you run more than one CLI agent at a time, you quickly lose track:
 - 🟣 **`running bash..`** — a tool is executing (you see which one)
 - ⚪ **`idle 2m`** — done, waiting for your next prompt
 - **Drag-and-drop groups** — organize sessions into named columns that persist across restarts
-- **One-click focus (macOS)** — jump from a card to the corresponding terminal tab
+- **One-click focus (macOS)** — jump from a card to the corresponding terminal tab, ready to prompt.
 - **Shared browser** — any session can open a webview every other session can script (useful for coordinated debugging)
 
 ---
