@@ -62,7 +62,7 @@ Or `~/.claude/settings.json`:
 ### Gemini CLI
 
 ```bash
-gemini mcp add --scope user sessions-dashboard --env SESSIONS_DASHBOARD_HOST=gemini -- npx -y sessions-dashboard
+gemini mcp add --scope user --env SESSIONS_DASHBOARD_HOST=gemini sessions-dashboard npx -y sessions-dashboard
 ```
 
 Or `~/.gemini/settings.json`:
