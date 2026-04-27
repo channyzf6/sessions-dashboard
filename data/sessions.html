@@ -393,6 +393,14 @@
     armedWindowMs: 5000,
     freshThresholdMs: 6000,
     writeSettleMs: 500,
+    // Suppress rename reconciliation for sessions younger than this. Adapter
+    // name-discovery has discovery jitter in the first seconds (e.g. a host
+    // adapter may briefly resolve to the wrong transcript before stabilizing);
+    // reacting to those flips with pin writes locks cards into wrong groups.
+    // Defense-in-depth — sticky JSONL binding in lib/host/claude.mjs is the
+    // primary fix; this just stops the dashboard from amplifying any future
+    // flap regression.
+    renameDebounceMs: 30000,
   };
 
   // Local copies of the latest daemon state.
@@ -807,6 +815,10 @@
   // Ungrouped if no rule matches). Also updates the per-session map
   // so the next poll has the new baseline. First-observed sessions
   // (previousName is undefined) are NOT treated as renames.
+  //
+  // Sessions younger than renameDebounceMs are exempt from reconciliation
+  // — see TIMINGS comment. We still track the latest name so comparisons
+  // after the debounce window have an accurate baseline.
   function detectRenames() {
     const renames = [];
     const liveIds = new Set();
@@ -815,6 +827,7 @@
       const previousName = lastSeenSessionNames.get(s.id);
       lastSeenSessionNames.set(s.id, s.sessionName);
       if (previousName && previousName !== s.sessionName) {
+        if (typeof s.ageMs === "number" && s.ageMs < TIMINGS.renameDebounceMs) continue;
         renames.push({ session: s, oldName: previousName });
       }
     }
