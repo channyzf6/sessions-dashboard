@@ -1649,23 +1649,27 @@
 
     const btn = document.getElementById("theme-toggle");
 
-    function applyTheme(choice) {
+    function applyTheme(choice, persist) {
       document.documentElement.setAttribute("data-theme", choice);
       document.documentElement.setAttribute("data-theme-choice", choice);
       btn.textContent = GLYPH[choice];
       btn.title = `Theme: ${LABEL[choice]} (click to cycle)`;
       btn.setAttribute("aria-label", `Theme: ${LABEL[choice]}. Click to cycle theme.`);
-      try { localStorage.setItem(KEY, choice); } catch (_) {}
+      // Only write on explicit user choice — initial-load defaulting must NOT
+      // pollute localStorage, otherwise future versions can't change the default.
+      if (persist) {
+        try { localStorage.setItem(KEY, choice); } catch (_) {}
+      }
     }
 
     btn.addEventListener("click", () => {
       const cur = document.documentElement.getAttribute("data-theme-choice") || "current";
       const i = ORDER.indexOf(cur);
       const next = i === -1 ? "dark" : ORDER[(i + 1) % ORDER.length];
-      applyTheme(next);
+      applyTheme(next, true);
     });
 
-    applyTheme(document.documentElement.getAttribute("data-theme-choice") || "current");
+    applyTheme(document.documentElement.getAttribute("data-theme-choice") || "current", false);
   })();
 </script>
 </body>
